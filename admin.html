@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MOZA Attendance | الإدارة</title><link rel="stylesheet" href="shared.css"></head>
+<body>
+<div class="shell">
+  <header class="topbar"><div class="brand"><div class="brand-mark">M</div><div>MOZA Attendance<div class="muted" style="font-size:12px;font-weight:500">لوحة الإدارة</div></div></div><div class="toolbar"><span id="adminEmail" class="muted"></span><button id="logoutBtn" class="btn secondary">تسجيل الخروج</button></div></header>
+  <div id="loginView" class="login-wrap" style="min-height:65vh;display:none"><div class="panel login-card"><div class="brand"><div class="brand-mark">M</div>MOZA Attendance</div><h2 style="text-align:center">دخول الإدارة</h2><div class="field"><label>البريد الإلكتروني</label><input id="adminEmailInput" type="email" autocomplete="username"></div><div class="field"><label>كلمة المرور</label><input id="adminPassword" type="password" autocomplete="current-password"></div><button id="adminLogin" class="btn" style="width:100%">تسجيل الدخول</button><div id="loginMsg"></div></div></div>
+  <div id="appView" class="layout" style="display:none">
+    <aside class="panel sidebar"><div style="font-weight:800">القائمة الرئيسية</div><nav class="nav">
+      <button class="active" data-tab="dashboard">▦ الرئيسية</button><button data-tab="students">♙ الطلاب</button><button data-tab="sessions">▣ المحاضرات و QR</button><button data-tab="attendance">✓ سجلات الحضور</button><button data-tab="reports">▤ التقارير</button><button data-tab="security">◈ سجل العمليات</button>
+    </nav></aside>
+    <main class="content">
+      <section id="tab-dashboard">
+        <div class="section-head"><div><h2>لوحة التحكم</h2><div class="muted">ملخص أداء الحضور</div></div></div>
+        <div class="grid">
+          <div class="stat"><div class="stat-icon">♙</div><div class="stat-label">إجمالي الطلاب</div><div class="stat-value" id="totalStudents">—</div></div>
+          <div class="stat"><div class="stat-icon">✓</div><div class="stat-label">الحضور اليوم</div><div class="stat-value" id="todayPresent">—</div></div>
+          <div class="stat"><div class="stat-icon">×</div><div class="stat-label">الغياب اليوم</div><div class="stat-value" id="todayAbsent">—</div></div>
+          <div class="stat"><div class="stat-icon">▣</div><div class="stat-label">عدد المحاضرات</div><div class="stat-value" id="totalSessions">—</div></div>
+        </div>
+        <div class="panel" style="margin-top:18px"><h3>آخر سجلات الحضور</h3><div id="recentAttendance" class="empty">جارٍ تحميل البيانات...</div></div>
+      </section>
+      <section id="tab-students" hidden>
+        <div class="section-head"><div><h2>إدارة الطلاب</h2><div class="muted">إضافة وتعديل وتفعيل حسابات الطلاب</div></div><button id="addStudentBtn" class="btn">＋ إضافة طالب</button></div>
+        <div class="panel"><div class="toolbar"><input id="studentSearch" class="field" placeholder="ابحث بالاسم أو كود الطالب..." style="margin:0"><span id="studentCount" class="muted"></span></div><div id="studentsTable" style="margin-top:16px"></div></div>
+      </section>
+      <section id="tab-sessions" hidden>
+        <div class="section-head"><div><h2>إدارة المحاضرات</h2><div class="muted">إنشاء جلسة حضور برمز QR مؤقت</div></div><button id="newSessionBtn" class="btn">＋ محاضرة جديدة</button></div>
+        <div class="panel"><div id="activeQr" class="empty">لا توجد جلسة منشأة حاليًا.</div></div>
+        <div class="panel" style="margin-top:16px"><h3>المحاضرات السابقة</h3><div id="sessionsTable"></div></div>
+      </section>
+      <section id="tab-attendance" hidden>
+        <div class="section-head"><div><h2>سجلات الحضور</h2><div class="muted">سجل الطلاب لكل جلسة</div></div></div>
+        <div class="panel"><div class="toolbar"><select id="attendanceSession" class="field" style="margin:0;max-width:320px"><option value="">كل المحاضرات</option></select><input id="attendanceSearch" class="field" style="margin:0" placeholder="ابحث باسم الطالب أو الكود"></div><div id="attendanceTable" style="margin-top:16px"></div></div>
+      </section>
+      <section id="tab-reports" hidden>
+        <div class="section-head"><div><h2>التقارير</h2><div class="muted">تصدير بيانات الحضور إلى Excel</div></div><button id="exportExcel" class="btn success">تصدير Excel</button></div>
+        <div class="panel"><p class="muted">سيتم تصدير سجلات الحضور المتاحة في قاعدة البيانات مع اسم الطالب وكوده واسم المحاضرة والتوقيت.</p><div id="reportSummary"></div></div>
+      </section>
+      <section id="tab-security" hidden>
+        <div class="section-head"><div><h2>سجل الحماية والعمليات</h2><div class="muted">تسجيل إجراءات الإدارة المهمة</div></div></div>
+        <div class="panel"><div id="auditTable" class="empty">جارٍ تحميل السجل...</div></div>
+      </section>
+    </main>
+  </div>
+</div>
+<div id="studentModal" class="modal"><div class="modal-card"><div class="modal-head"><h3 id="studentModalTitle">إضافة طالب</h3><button class="close" data-close="studentModal">✕</button></div><form id="studentForm"><input id="editUid" type="hidden"><div class="field"><label>اسم الطالب بالكامل</label><input id="studentName" required minlength="3" maxlength="100"></div><div class="field"><label>كود الطالب</label><input id="studentCode" required pattern="[A-Za-z0-9_-]{3,32}"></div><div class="field" id="nationalIdField"><label>الرقم القومي (14 رقمًا)</label><input id="studentNationalId" inputmode="numeric" pattern="[0-9]{14}" maxlength="14" required></div><div class="notice">يُستخدم كود الطالب كاسم مستخدم والرقم القومي ككلمة مرور. لا يتم حفظ الرقم القومي في قاعدة البيانات أو سجلات العمليات.</div><div id="studentFormMsg"></div><button class="btn" type="submit">حفظ الطالب</button></form></div></div>
+<div id="sessionModal" class="modal"><div class="modal-card"><div class="modal-head"><h3>إنشاء محاضرة</h3><button class="close" data-close="sessionModal">✕</button></div><form id="sessionForm"><div class="field"><label>اسم المحاضرة</label><input id="sessionTitle" required maxlength="100"></div><div class="field"><label>مدة صلاحية QR بالدقائق</label><input id="sessionDuration" type="number" min="1" max="600" value="30" required></div><button class="btn" type="submit">إنشاء QR</button><div id="sessionMsg"></div></form></div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script type="module" src="admin.js"></script>
+</body></html>

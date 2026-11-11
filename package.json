@@ -1,0 +1,8 @@
+{
+  "name": "moza-attendance-supabase",
+  "private": true,
+  "description": "MOZA Attendance static frontend and Supabase Edge Function",
+  "scripts": {
+    "deploy:function": "supabase functions deploy moza-api"
+  }
+}
