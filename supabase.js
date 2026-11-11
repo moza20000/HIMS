@@ -52,7 +52,7 @@ export const studentSignInWithPassword = (credentials) =>
   studentAuth.signInWithPassword(credentials);
 
 export const studentSignOut = () =>
-  studentAuth.signOut();
+  studentAuth.signOut({ scope: "local" });
 
 export const onStudentAuthStateChanged = (callback) =>
   studentAuth.onAuthStateChange((_event, session) => {
