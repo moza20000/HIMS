@@ -65,7 +65,6 @@ onAuthStateChanged(async user => {
 
   } catch (e) {
     console.error("MOZA profile lookup threw:", e);
-
     await signOut();
 
     $("loginMsg").innerHTML =
@@ -80,7 +79,6 @@ onAuthStateChanged(async user => {
 
   if (error) {
     console.error("MOZA profile lookup failed:", error);
-
     await signOut();
 
     $("loginMsg").innerHTML =
@@ -342,7 +340,7 @@ function renderStudents() {
         : !s.archived_at
     )
     .filter(s =>
-      `${s.name} ${s.code}`.toLowerCase().includes(q)
+      `${s.name} ${s.code} ${s.branch || ""}`.toLowerCase().includes(q)
     )
     .sort((a, b) =>
       a.name.localeCompare(b.name, "ar")
@@ -353,11 +351,12 @@ function renderStudents() {
 
   $("studentsTable").innerHTML = list.length
     ? table(
-        ["الاسم", "الكود", "الحالة", "تاريخ الإضافة", "الإجراءات"],
+        ["الاسم", "الكود", "الشعبة", "الحالة", "تاريخ الإضافة", "الإجراءات"],
 
         list.map(s => [
           esc(s.name),
           esc(s.code),
+          esc(s.branch || "غير محددة"),
 
           s.archived_at
             ? '<span class="pill red">مؤرشف</span>'
@@ -369,22 +368,16 @@ function renderStudents() {
 
           s.archived_at
             ? `
-              <button
-                class="btn small success"
-                data-restore="${s.id}">
+              <button class="btn small success" data-restore="${s.id}">
                 استعادة
               </button>
 
-              <button
-                class="btn small danger"
-                data-delete="${s.id}">
+              <button class="btn small danger" data-delete="${s.id}">
                 حذف نهائي
               </button>
             `
             : `
-              <button
-                class="btn small secondary"
-                data-edit="${s.id}">
+              <button class="btn small secondary" data-edit="${s.id}">
                 تعديل
               </button>
 
@@ -395,15 +388,11 @@ function renderStudents() {
                 ${s.active ? "إيقاف" : "تفعيل"}
               </button>
 
-              <button
-                class="btn small secondary"
-                data-archive="${s.id}">
+              <button class="btn small secondary" data-archive="${s.id}">
                 حذف آمن
               </button>
 
-              <button
-                class="btn small danger"
-                data-delete="${s.id}">
+              <button class="btn small danger" data-delete="${s.id}">
                 حذف نهائي
               </button>
             `
@@ -411,14 +400,12 @@ function renderStudents() {
       )
     : '<div class="empty">لا يوجد طلاب مطابقون.</div>';
 
-  // تعديل بيانات الطالب
   $("studentsTable")
     .querySelectorAll("[data-edit]")
     .forEach(b => {
       b.onclick = () => editStudent(b.dataset.edit);
     });
 
-  // إيقاف وتفعيل الطالب
   $("studentsTable")
     .querySelectorAll("[data-toggle]")
     .forEach(b => {
@@ -430,14 +417,12 @@ function renderStudents() {
             uid: b.dataset.toggle,
             active: b.dataset.active === "true"
           });
-
         } catch (e) {
           alert(errText(e));
         }
       };
     });
 
-  // الحذف الآمن - أرشفة الطالب
   $("studentsTable")
     .querySelectorAll("[data-archive]")
     .forEach(b => {
@@ -459,7 +444,6 @@ function renderStudents() {
       };
     });
 
-  // استعادة الطالب
   $("studentsTable")
     .querySelectorAll("[data-restore]")
     .forEach(b => {
@@ -479,7 +463,6 @@ function renderStudents() {
       };
     });
 
-  // الحذف النهائي
   $("studentsTable")
     .querySelectorAll("[data-delete]")
     .forEach(b => {
@@ -527,7 +510,6 @@ archivedBtn.onclick = () => {
     : "عرض الطلاب المؤرشفين";
 
   $("studentSearch").value = "";
-
   renderStudents();
 };
 
@@ -540,6 +522,8 @@ $("addStudentBtn").onclick = () => {
 
   $("editUid").value = "";
   $("studentCode").disabled = false;
+
+  $("studentBranch").value = "";
 
   $("nationalIdField").style.display = "";
   $("studentNationalId").required = true;
@@ -564,6 +548,7 @@ function editStudent(uid) {
   $("editUid").value = uid;
   $("studentName").value = s.name;
   $("studentCode").value = s.code;
+  $("studentBranch").value = s.branch || "";
 
   $("studentCode").disabled = true;
 
@@ -579,7 +564,7 @@ function editStudent(uid) {
 }
 
 // =====================================
-// حفظ بيانات الطالب
+// حفظ بيانات الطالب والشعبة
 // =====================================
 
 $("studentForm").onsubmit = async e => {
@@ -589,18 +574,26 @@ $("studentForm").onsubmit = async e => {
 
   try {
     const uid = $("editUid").value;
+    const name = $("studentName").value.trim();
+    const branch = $("studentBranch").value;
+
+    if (!["شعبة عامة", "شعبة نظم"].includes(branch)) {
+      throw new Error("اختر شعبة الطالب.");
+    }
 
     if (uid) {
       await call("updateStudent", {
         uid,
-        name: $("studentName").value.trim()
+        name,
+        branch
       });
 
     } else {
       await call("createStudent", {
-        name: $("studentName").value.trim(),
+        name,
         code: $("studentCode").value.trim(),
-        nationalId: $("studentNationalId").value.trim()
+        nationalId: $("studentNationalId").value.trim(),
+        branch
       });
     }
 
@@ -634,7 +627,6 @@ $("sessionForm").onsubmit = async e => {
     currentSession = result.data;
 
     modal("sessionModal", false);
-
     renderActiveQR();
 
   } catch (err) {
@@ -658,7 +650,6 @@ function renderActiveQR() {
   $("activeQr").innerHTML = `
     <div style="text-align:center">
       <span class="pill green">جلسة نشطة</span>
-
       <h3>${esc(currentSession.title)}</h3>
 
       <div id="qrBox">
@@ -669,9 +660,7 @@ function renderActiveQR() {
         صالح حتى: ${dateText(currentSession.expiresAt)}
       </p>
 
-      <button
-        id="endCurrentSession"
-        class="btn danger">
+      <button id="endCurrentSession" class="btn danger">
         إنهاء الجلسة
       </button>
     </div>
