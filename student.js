@@ -46,7 +46,7 @@ async function showUser(user) {
   try {
     const { data: profile, error } = await studentSupabase
       .from("profiles")
-      .select("id,name,code,active,role")
+      .select("id,name,code,branch,active,role")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -54,6 +54,7 @@ async function showUser(user) {
       console.error("Profile loading error:", error);
       await studentSignOut();
       setView(false);
+
       msg(
         "loginMsg",
         "تعذر قراءة بيانات الطالب. تحقق من صلاحيات قاعدة البيانات.",
@@ -69,6 +70,7 @@ async function showUser(user) {
     ) {
       await studentSignOut();
       setView(false);
+
       msg(
         "loginMsg",
         "الحساب غير نشط أو غير مسجل كطالب.",
@@ -80,12 +82,16 @@ async function showUser(user) {
     $("welcomeName").textContent =
       `أهلاً ${profile.name || "بك"}`;
 
+    $("welcomeBranch").textContent =
+      `الشعبة: ${profile.branch || "غير محددة"}`;
+
     setView(true);
 
   } catch (error) {
     console.error("Student session error:", error);
     await studentSignOut();
     setView(false);
+
     msg(
       "loginMsg",
       "حدث خطأ أثناء تحميل بيانات الحساب.",
@@ -97,6 +103,10 @@ async function showUser(user) {
 onStudentAuthStateChanged((user) => {
   showUser(user);
 });
+
+// =====================================
+// تسجيل دخول الطالب
+// =====================================
 
 $("studentLogin").onclick = async () => {
   $("loginMsg").innerHTML = "";
@@ -130,16 +140,22 @@ $("studentLogin").onclick = async () => {
 
   } catch (error) {
     console.error("Student login error:", error);
+
     msg(
       "loginMsg",
       "بيانات الدخول غير صحيحة أو الحساب غير نشط.",
       "error"
     );
+
   } finally {
     button.disabled = false;
     button.textContent = "دخول";
   }
 };
+
+// =====================================
+// تسجيل الخروج
+// =====================================
 
 $("logout").onclick = async () => {
   try {
@@ -153,6 +169,7 @@ $("logout").onclick = async () => {
 
   } catch (error) {
     console.error("Logout error:", error);
+
     msg(
       "resultMsg",
       "تعذر تسجيل الخروج بشكل كامل.",
@@ -160,6 +177,10 @@ $("logout").onclick = async () => {
     );
   }
 };
+
+// =====================================
+// مسح QR وتسجيل الحضور
+// =====================================
 
 $("scanBtn").onclick = async () => {
   if (processingQR) return;
@@ -188,6 +209,7 @@ $("scanBtn").onclick = async () => {
       await scanner.stop();
       scanning = false;
       $("scanBtn").textContent = "فتح الكاميرا ومسح QR";
+
     } catch (error) {
       console.error("Scanner stop error:", error);
       msg("resultMsg", "تعذر إيقاف الكاميرا.", "error");
@@ -204,6 +226,7 @@ $("scanBtn").onclick = async () => {
         fps: 10,
         qrbox: { width: 240, height: 240 }
       },
+
       async (decoded) => {
         if (!scanning || processingQR) return;
 
