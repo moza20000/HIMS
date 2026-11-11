@@ -5,11 +5,13 @@ import {
   supabasePublishableKey
 } from "./supabase-config.js";
 
+// جلسة الإدارة
 export const supabase = createClient(
   supabaseUrl,
   supabasePublishableKey,
   {
     auth: {
+      storageKey: "moza-admin-auth",
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true
@@ -24,16 +26,45 @@ export const signInWithPassword = (credentials) =>
 
 export const signOut = () => auth.signOut();
 
-export const onAuthStateChanged = (callback) =>
-  auth.onAuthStateChange((_event, session) => {
+export const onAuthStateChanged = (callback) => {
+  return auth.onAuthStateChange((_event, session) => {
     queueMicrotask(() => callback(session?.user || null));
   });
+};
+
+// جلسة الطالب المستقلة
+export const studentSupabase = createClient(
+  supabaseUrl,
+  supabasePublishableKey,
+  {
+    auth: {
+      storageKey: "moza-student-auth",
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
+  }
+);
+
+export const studentAuth = studentSupabase.auth;
+
+export const studentSignInWithPassword = (credentials) =>
+  studentAuth.signInWithPassword(credentials);
+
+export const studentSignOut = () => studentAuth.signOut();
+
+export const onStudentAuthStateChanged = (callback) => {
+  return studentAuth.onAuthStateChange((_event, session) => {
+    queueMicrotask(() => callback(session?.user || null));
+  });
+};
 
 export const studentEmail = (code) =>
   `student-${String(code).trim().toLowerCase()}@moza-attendance.app`;
 
-export async function call(name, data = {}) {
-  const { data: result, error } = await supabase.functions.invoke(
+// استدعاء خدمات الإدارة
+async function invoke(client, name, data = {}) {
+  const { data: result, error } = await client.functions.invoke(
     "super-service",
     {
       body: { action: name, ...data }
@@ -60,4 +91,14 @@ export async function call(name, data = {}) {
   }
 
   return { data: result };
+}
+
+// يظل هذا الاستدعاء للإدارة حتى لا نكسر admin.js
+export async function call(name, data = {}) {
+  return invoke(supabase, name, data);
+}
+
+// استدعاء خدمات الطالب بجلسة الطالب فقط
+export async function callStudent(name, data = {}) {
+  return invoke(studentSupabase, name, data);
 }
