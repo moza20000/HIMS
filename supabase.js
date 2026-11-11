@@ -11,7 +11,7 @@ export const onAuthStateChanged = (callback) => auth.onAuthStateChange((_event, 
 export const studentEmail = code => `student-${String(code).trim().toLowerCase()}@moza-attendance.app`;
 
 export async function call(name, data = {}) {
-  const { data: result, error } = await supabase.functions.invoke("moza-api", {
+  const { data: result, error } = await supabase.functions.invoke("super-service", {
     body: { action: name, ...data }
   });
   if (error) {
