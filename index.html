@@ -1,8 +1,66 @@
+
 <!doctype html>
 <html lang="ar" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MOZA Attendance | الطالب</title><link rel="stylesheet" href="shared.css"></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MOZA Attendance | الطالب</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
 <body>
-<div id="loginView" class="login-wrap"><div class="panel login-card"><div class="brand"><div class="brand-mark">M</div>MOZA Attendance</div><h2 style="text-align:center">تسجيل دخول الطالب</h2><div class="field"><label>كود الطالب</label><input id="studentCode" autocomplete="username" autocapitalize="none"></div><div class="field"><label>الرقم القومي</label><input id="studentNationalId" type="password" inputmode="numeric" autocomplete="current-password" maxlength="14"></div><button id="studentLogin" class="btn" style="width:100%">دخول</button><div id="loginMsg"></div></div></div>
-<div id="studentView" class="student-main" style="display:none"><header class="topbar"><div class="brand"><div class="brand-mark">M</div>MOZA Attendance</div><button id="logout" class="btn secondary">تسجيل الخروج</button></header><div class="panel student-card"><span class="pill green">حساب الطالب</span><h2 id="welcomeName">أهلاً بك</h2><p class="muted">امسح رمز QR الخاص بالمحاضرة لتسجيل حضورك.</p><button id="scanBtn" class="btn">فتح الكاميرا ومسح QR</button><div id="reader" class="scanner"></div><div id="resultMsg"></div></div></div>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script><script type="module" src="student.js"></script>
-</body></html>
+
+<div id="loginView" class="login-wrap">
+  <div class="panel login-card">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      MOZA Attendance
+    </div>
+
+    <h2 style="text-align:center">تسجيل دخول الطالب</h2>
+
+    <div class="field">
+      <label>كود الطالب</label>
+      <input id="studentCode" autocomplete="username" autocapitalize="none">
+    </div>
+
+    <div class="field">
+      <label>الرقم القومي</label>
+      <input id="studentNationalId" type="password" inputmode="numeric" autocomplete="current-password" maxlength="14">
+    </div>
+
+    <button id="studentLogin" class="btn" style="width:100%">دخول</button>
+    <div id="loginMsg"></div>
+  </div>
+</div>
+
+<div id="studentView" class="student-main" style="display:none">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      MOZA Attendance
+    </div>
+    <button id="logout" class="btn secondary">تسجيل الخروج</button>
+  </header>
+
+  <div class="panel student-card">
+    <span class="pill green">حساب الطالب</span>
+
+    <h2 id="welcomeName">أهلاً بك</h2>
+
+    <p id="welcomeBranch" class="muted" style="font-weight:700;margin-top:-8px">
+      الشعبة: —
+    </p>
+
+    <p class="muted">امسح رمز QR الخاص بالمحاضرة لتسجيل حضورك.</p>
+
+    <button id="scanBtn" class="btn">فتح الكاميرا ومسح QR</button>
+
+    <div id="reader" class="scanner"></div>
+    <div id="resultMsg"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script type="module" src="student.js"></script>
+</body>
+</html>
