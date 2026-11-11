@@ -11,7 +11,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const fail = (message: string, status = 400) => json({ error: message }, status);
 const url = Deno.env.get("SUPABASE_URL")!;
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
-const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const serviceKey = Deno.env.get("MOZA_SERVICE_KEY")!;
 const adminDb = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
 const cleanCode = (v: unknown) => {
@@ -41,12 +41,32 @@ async function main(req: Request) {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${jwt}` } },
   });
-  const { data: authData, error: authError } = await userClient.auth.getUser(jwt);
-  if (authError || !authData.user) return fail("جلسة الدخول غير صالحة. سجّل الدخول مرة أخرى.", 401);
-  const uid = authData.user.id;
-  const { data: profile, error: profileError } = await adminDb.from("profiles")
-    .select("id,name,code,role,active").eq("id", uid).maybeSingle();
-  if (profileError || !profile || !profile.active) return fail("الحساب غير نشط أو غير مسجل.", 403);
+const { data: authData, error: authError } =
+  await userClient.auth.getUser(jwt);
+
+if (authError || !authData.user) {
+  return fail("جلسة الدخول غير صالحة. سجّل الدخول مرة أخرى.", 401);
+}
+
+const uid = authData.user.id;
+
+const { data: profile, error: profileError } = await adminDb
+  .from("profiles")
+  .select("id,name,code,role,active")
+  .eq("id", uid)
+  .maybeSingle();
+
+if (profileError) {
+  return fail("PROFILE_DB_ERROR: " + profileError.message, 500);
+}
+
+if (!profile) {
+  return fail("PROFILE_NOT_FOUND: " + uid, 403);
+}
+
+if (profile.active !== true) {
+  return fail("PROFILE_INACTIVE: " + JSON.stringify(profile), 403);
+}
 
   const body = await req.json().catch(() => ({}));
   const action = String(body.action || "");
