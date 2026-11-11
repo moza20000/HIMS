@@ -286,7 +286,7 @@ async function main(req: Request) {
     }
 
     // =====================================
-    // إضافة طالب
+    // إضافة طالب مع حفظ الشعبة والتحقق منها
     // =====================================
     if (action === "createStudent") {
       requireAdmin();
@@ -320,40 +320,48 @@ async function main(req: Request) {
         throw error;
       }
 
-      const { error: saveError } = await adminDb
-        .from("profiles")
-        .upsert({
-          id: created.user.id,
-          name,
-          code,
-          branch,
-          role: "student",
-          active: true,
-        }, {
-          onConflict: "id",
-        });
+      const { data: savedStudent, error: saveError } =
+        await adminDb
+          .from("profiles")
+          .upsert({
+            id: created.user.id,
+            name,
+            code,
+            branch,
+            role: "student",
+            active: true,
+          }, {
+            onConflict: "id",
+          })
+          .select("id,name,code,branch")
+          .single();
 
-      if (saveError) {
+      if (saveError || !savedStudent) {
         await adminDb.auth.admin.deleteUser(created.user.id);
-        throw saveError;
+        throw saveError || new Error("لم يتم حفظ بيانات الطالب.");
+      }
+
+      if (savedStudent.branch !== branch) {
+        throw new Error("تم إنشاء الطالب لكن الشعبة لم تُحفظ بشكل صحيح.");
       }
 
       await audit("student_created", {
         studentUid: created.user.id,
         code,
-        branch,
+        branch: savedStudent.branch,
       });
 
       return json({
-        uid: created.user.id,
-        name,
-        code,
-        branch,
+        ok: true,
+        uid: savedStudent.id,
+        name: savedStudent.name,
+        code: savedStudent.code,
+        branch: savedStudent.branch,
       });
     }
 
     // =====================================
-    // تعديل بيانات طالب
+    // تعديل بيانات طالب مع التحقق من الشعبة
     // =====================================
     if (action === "updateStudent") {
       requireAdmin();
@@ -376,22 +384,36 @@ async function main(req: Request) {
         throw new Error("الطالب غير موجود.");
       }
 
-      const { error } = await adminDb
-        .from("profiles")
-        .update({
-          name,
-          branch,
-        })
-        .eq("id", target);
+      const { data: updatedStudent, error: updateError } =
+        await adminDb
+          .from("profiles")
+          .update({
+            name,
+            branch,
+          })
+          .eq("id", target)
+          .select("id,name,branch")
+          .single();
 
-      if (error) throw error;
+      if (updateError) throw updateError;
+
+      if (!updatedStudent) {
+        throw new Error("لم يتم العثور على الطالب بعد التحديث.");
+      }
+
+      if (updatedStudent.branch !== branch) {
+        throw new Error("الشعبة لم تُحفظ بالقيمة المطلوبة.");
+      }
 
       await audit("student_updated", {
         studentUid: target,
-        branch,
+        branch: updatedStudent.branch,
       });
 
-      return json({ ok: true });
+      return json({
+        ok: true,
+        student: updatedStudent,
+      });
     }
 
     // =====================================
