@@ -44,6 +44,16 @@ const cleanCode = (v: unknown) => {
   return code;
 };
 
+const cleanBranch = (v: unknown) => {
+  const branch = String(v ?? "").trim();
+
+  if (!["شعبة عامة", "شعبة نظم"].includes(branch)) {
+    throw new Error("اختر شعبة عامة أو شعبة نظم.");
+  }
+
+  return branch;
+};
+
 const studentEmail = (code: string) =>
   `student-${code}@moza-attendance.app`;
 
@@ -104,7 +114,7 @@ async function main(req: Request) {
 
   const { data: profile, error: profileError } = await adminDb
     .from("profiles")
-    .select("id,name,code,role,active")
+    .select("id,name,code,branch,role,active")
     .eq("id", uid)
     .maybeSingle();
 
@@ -284,6 +294,7 @@ async function main(req: Request) {
       const name = String(body.name || "").trim();
       const code = cleanCode(body.code);
       const nationalId = String(body.nationalId || "").trim();
+      const branch = cleanBranch(body.branch);
 
       if (name.length < 3 || name.length > 100) {
         throw new Error("اكتب اسم الطالب بالكامل.");
@@ -315,6 +326,7 @@ async function main(req: Request) {
           id: created.user.id,
           name,
           code,
+          branch,
           role: "student",
           active: true,
         }, {
@@ -329,12 +341,14 @@ async function main(req: Request) {
       await audit("student_created", {
         studentUid: created.user.id,
         code,
+        branch,
       });
 
       return json({
         uid: created.user.id,
         name,
         code,
+        branch,
       });
     }
 
@@ -346,6 +360,7 @@ async function main(req: Request) {
 
       const target = String(body.uid || "");
       const name = String(body.name || "").trim();
+      const branch = cleanBranch(body.branch);
 
       if (!target || name.length < 3 || name.length > 100) {
         throw new Error("بيانات غير صحيحة.");
@@ -363,20 +378,17 @@ async function main(req: Request) {
 
       const { error } = await adminDb
         .from("profiles")
-        .update({ name })
+        .update({
+          name,
+          branch,
+        })
         .eq("id", target);
 
       if (error) throw error;
 
-      const { error: authUpdateError } =
-        await adminDb.auth.admin.updateUserById(target, {
-          user_metadata: { name },
-        });
-
-      if (authUpdateError) throw authUpdateError;
-
       await audit("student_updated", {
         studentUid: target,
+        branch,
       });
 
       return json({ ok: true });
@@ -569,6 +581,8 @@ async function main(req: Request) {
       error instanceof Error
         ? error.message
         : "حدث خطأ غير متوقع.";
+
+    console.error("MOZA API error:", error);
 
     return fail(message, 400);
   }
