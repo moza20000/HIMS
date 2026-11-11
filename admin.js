@@ -144,7 +144,7 @@ onAuthStateChanged(async user => {
 });
 
 // =====================================
-// أزرار تسجيل الدخول والخروج
+// تسجيل الدخول والخروج
 // =====================================
 
 $("adminLogin").onclick = async () => {
@@ -259,7 +259,7 @@ function allRecords() {
 }
 
 // =====================================
-// لوحة التحكم الرئيسية
+// لوحة التحكم
 // =====================================
 
 function renderDashboard() {
@@ -693,7 +693,7 @@ function renderActiveQR() {
 }
 
 // =====================================
-// عرض المحاضرات
+// عرض المحاضرات مع زر الحذف
 // =====================================
 
 function renderSessions() {
@@ -703,7 +703,7 @@ function renderSessions() {
 
   $("sessionsTable").innerHTML = list.length
     ? table(
-        ["المحاضرة", "تاريخ الإنشاء", "الصلاحية", "الحالة"],
+        ["المحاضرة", "تاريخ الإنشاء", "الصلاحية", "الحالة", "الإجراءات"],
 
         list.map(s => [
           esc(s.title),
@@ -713,10 +713,70 @@ function renderSessions() {
           s.active &&
           Date.now() < new Date(s.expires_at).getTime()
             ? '<span class="pill green">نشطة</span>'
-            : '<span class="pill red">منتهية</span>'
+            : '<span class="pill red">منتهية</span>',
+
+          `<button
+             class="btn small danger"
+             data-delete-session="${esc(s.id)}">
+             حذف المحاضرة
+           </button>`
         ])
       )
     : '<div class="empty">لا توجد محاضرات.</div>';
+
+  $("sessionsTable")
+    .querySelectorAll("[data-delete-session]")
+    .forEach(button => {
+      button.onclick = async () => {
+        const sessionId = button.dataset.deleteSession;
+        const session = sessions.find(s => s.id === sessionId);
+
+        if (!session) {
+          alert("المحاضرة غير موجودة.");
+          return;
+        }
+
+        if (!confirm(
+          `هل أنت متأكد من حذف المحاضرة "${session.title}"؟\n\nسيتم حذف سجلات الحضور المرتبطة بها أيضًا، ولا يمكن التراجع عن ذلك.`
+        )) return;
+
+        button.disabled = true;
+        button.textContent = "جارٍ الحذف...";
+
+        try {
+          await call("deleteSession", { sessionId });
+
+          sessions = sessions.filter(s => s.id !== sessionId);
+
+          attendance = attendance.filter(
+            r => r.session_id !== sessionId
+          );
+
+          if (currentSession?.id === sessionId) {
+            currentSession = null;
+
+            $("activeQr").innerHTML =
+              '<div class="empty">تم حذف المحاضرة.</div>';
+          }
+
+          renderSessions();
+          renderAttendance();
+          renderDashboard();
+          fillSessionFilter();
+
+          $("reportSummary").textContent =
+            `إجمالي سجلات الحضور: ${allRecords().length}`;
+
+          alert("تم حذف المحاضرة وسجلات حضورها بنجاح.");
+
+        } catch (e) {
+          alert("تعذر حذف المحاضرة: " + errText(e));
+
+          button.disabled = false;
+          button.textContent = "حذف المحاضرة";
+        }
+      };
+    });
 }
 
 // =====================================
@@ -733,7 +793,7 @@ function fillSessionFilter() {
       `<option value="${esc(s.id)}">${esc(s.title)}</option>`
     ).join("");
 
-  select.value = old;
+  select.value = sessions.some(s => s.id === old) ? old : "";
 }
 
 // =====================================
