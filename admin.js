@@ -1,4 +1,3 @@
-
 import {
   supabase,
   auth,
@@ -15,9 +14,16 @@ let sessions = [];
 let attendance = [];
 let auditLogs = [];
 
-let currentSession = null;
 let subscriptions = [];
 let showArchivedStudents = false;
+let refreshing = false;
+let refreshAgain = false;
+
+// رموز QR تحفظ في ذاكرة الصفحة فقط ولا تُسترجع من قاعدة البيانات.
+const qrTokens = new Map();
+
+const YEARS = [1, 2, 3, 4];
+const BRANCHES = ["شعبة عامة", "شعبة نظم"];
 
 const show = (id, yes = true) => {
   const el = $(id);
@@ -29,8 +35,8 @@ const modal = (id, yes = true) => {
   if (el) el.classList.toggle("open", yes);
 };
 
-const esc = s =>
-  String(s ?? "").replace(/[&<>"']/g, c => ({
+const esc = value =>
+  String(value ?? "").replace(/[&<>"']/g, c => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
@@ -38,23 +44,126 @@ const esc = s =>
     "'": "&#39;"
   }[c]));
 
-const dateText = n =>
-  n ? new Date(n).toLocaleString("ar-EG") : "—";
+const dateText = value =>
+  value ? new Date(value).toLocaleString("ar-EG") : "—";
 
-const errText = e =>
-  e?.message || "حدث خطأ غير متوقع.";
+const errText = error =>
+  error?.message || String(error || "حدث خطأ غير متوقع.");
 
-// =====================================
-// توحيد أسماء المواد للمقارنة
-// =====================================
+const yearText = year => {
+  const names = {
+    1: "الفرقة الأولى",
+    2: "الفرقة الثانية",
+    3: "الفرقة الثالثة",
+    4: "الفرقة الرابعة"
+  };
+  return names[Number(year)] || "فرقة غير محددة";
+};
 
-function normalizeSubject(value) {
-  return String(value || "غير محددة")
+const cohortText = (year, branch) =>
+  `${yearText(year)} - ${branch || "شعبة غير محددة"}`;
+
+const normalizeSubject = value =>
+  String(value || "غير محددة")
     .trim()
     .replace(/ـ/g, "")
     .replace(/[\u064B-\u065F\u0670]/g, "")
     .replace(/\s+/g, " ")
     .toLowerCase();
+
+const getResponse = result => {
+  if (result?.error) throw result.error;
+
+  const response = result?.data ?? result;
+
+  if (response?.error) {
+    throw new Error(response.error);
+  }
+
+  if (response?.ok === false) {
+    throw new Error(response.message || "تعذر تنفيذ العملية.");
+  }
+
+  return response;
+};
+
+async function api(action, payload = {}) {
+  const result = await call(action, payload);
+  return getResponse(result);
+}
+
+function yearMatches(item, value) {
+  return !value || Number(item.academic_year) === Number(value);
+}
+
+function branchMatches(item, value) {
+  return !value || item.branch === value;
+}
+
+function cohortMatches(item, year, branch) {
+  return yearMatches(item, year) && branchMatches(item, branch);
+}
+
+function isStudentInSession(student, session) {
+  return (
+    Number(student.academic_year) === Number(session.academic_year) &&
+    student.branch === session.branch
+  );
+}
+
+function getSession(sessionId) {
+  return sessions.find(s => String(s.id) === String(sessionId));
+}
+
+function getStudent(studentId) {
+  return students.find(s => String(s.id) === String(studentId));
+}
+
+function getSessionForRecord(record) {
+  return getSession(record.session_id);
+}
+
+function recordStatus(record) {
+  return record.status === "absent" ? "absent" : "present";
+}
+
+function statusText(status) {
+  return status === "absent"
+    ? '<span class="pill red status-absent">غائب</span>'
+    : '<span class="pill green status-present">حاضر</span>';
+}
+
+function attendanceSourceText(source) {
+  if (source === "manual") {
+    return '<span class="pill" style="background:#164e36;color:#bbf7d0">يدوي</span>';
+  }
+
+  if (source === "system") {
+    return '<span class="pill">غياب تلقائي</span>';
+  }
+
+  if (source === "legacy") {
+    return '<span class="pill">سجل قديم</span>';
+  }
+
+  return '<span class="pill">QR</span>';
+}
+
+function table(headers, rows) {
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr>${row.map(cell => `<td>${cell ?? "—"}</td>`).join("")}</tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 // =====================================
@@ -71,96 +180,46 @@ onAuthStateChanged(async user => {
     return;
   }
 
-  let profileResult;
-
   try {
-    profileResult = await supabase
+    const { data: profile, error } = await supabase
       .from("profiles")
-      .select("id,name,role,active")
+      .select("id,name,role,active,archived_at")
       .eq("id", user.id)
       .maybeSingle();
 
-  } catch (e) {
-    console.error("MOZA profile lookup threw:", e);
+    if (error) throw error;
+
+    if (!profile) {
+      throw new Error("لا يوجد سجل لهذا الحساب في جدول profiles.");
+    }
+
+    if (!["owner", "admin"].includes(profile.role)) {
+      throw new Error("الدور الحالي غير مسموح له بدخول لوحة الإدارة.");
+    }
+
+    if (profile.active !== true || profile.archived_at) {
+      throw new Error("حساب الإدارة غير نشط.");
+    }
+
+    $("adminEmail").textContent = user.email || "";
+    $("loginMsg").innerHTML = "";
+
+    show("loginView", false);
+    show("appView");
+
+    subscribeData();
+
+  } catch (error) {
+    console.error("Admin authentication error:", error);
     await signOut();
 
     $("loginMsg").innerHTML =
-      `<div class="notice error">تعذر فحص صلاحيات الحساب: ${esc(errText(e))}</div>`;
+      `<div class="notice error">${esc(errText(error))}</div>`;
 
     show("loginView");
     show("appView", false);
-    return;
   }
-
-  const { data: profile, error } = profileResult || {};
-
-  if (error) {
-    console.error("MOZA profile lookup failed:", error);
-    await signOut();
-
-    $("loginMsg").innerHTML =
-      `<div class="notice error">
-        قاعدة البيانات رفضت قراءة صلاحيات الحساب:
-        ${esc(errText(error))}
-        <br>
-        تأكد أن الموقع متصل بمشروع Supabase الصحيح.
-      </div>`;
-
-    show("loginView");
-    show("appView", false);
-    return;
-  }
-
-  if (!profile) {
-    await signOut();
-
-    $("loginMsg").innerHTML =
-      `<div class="notice error">
-        تم تسجيل الدخول، لكن لا يوجد سجل لهذا الحساب في جدول profiles.
-      </div>`;
-
-    show("loginView");
-    show("appView", false);
-    return;
-  }
-
-  if (!["owner", "admin"].includes(profile.role)) {
-    await signOut();
-
-    $("loginMsg").innerHTML =
-      `<div class="notice error">
-        الدور الحالي غير مسموح له بدخول لوحة الإدارة.
-      </div>`;
-
-    show("loginView");
-    show("appView", false);
-    return;
-  }
-
-  if (profile.active !== true) {
-    await signOut();
-
-    $("loginMsg").innerHTML =
-      `<div class="notice error">
-        حساب الإدارة غير نشط.
-      </div>`;
-
-    show("loginView");
-    show("appView", false);
-    return;
-  }
-
-  $("adminEmail").textContent = user.email || "";
-
-  show("loginView", false);
-  show("appView");
-
-  subscribeData();
 });
-
-// =====================================
-// تسجيل الدخول والخروج
-// =====================================
 
 $("adminLogin").onclick = async () => {
   $("loginMsg").innerHTML = "";
@@ -173,93 +232,79 @@ $("adminLogin").onclick = async () => {
 
     if (error) throw error;
 
-  } catch (e) {
+  } catch (error) {
     $("loginMsg").innerHTML =
-      `<div class="notice error">${esc(errText(e))}</div>`;
+      `<div class="notice error">${esc(errText(error))}</div>`;
   }
 };
+
+$("adminPassword").addEventListener("keydown", event => {
+  if (event.key === "Enter") $("adminLogin").click();
+});
 
 $("logoutBtn").onclick = () => signOut();
 
 // =====================================
-// تحميل البيانات والاشتراكات
+// الاشتراكات وتحميل البيانات
 // =====================================
 
 function cleanupSubscriptions() {
-  subscriptions.forEach(c => supabase.removeChannel(c));
+  subscriptions.forEach(channel => supabase.removeChannel(channel));
   subscriptions = [];
 }
 
-async function loadTable(tableName, assign, render) {
+async function loadTable(tableName) {
   const { data, error } = await supabase
     .from(tableName)
     .select("*");
 
   if (error) {
-    console.error(tableName, error);
+    console.error(`Loading ${tableName}:`, error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+async function refreshData() {
+  if (refreshing) {
+    refreshAgain = true;
     return;
   }
 
-  assign(data || []);
-  render();
+  refreshing = true;
+
+  try {
+    const [profileRows, sessionRows, attendanceRows, auditRows] =
+      await Promise.all([
+        loadTable("profiles"),
+        loadTable("sessions"),
+        loadTable("attendance"),
+        loadTable("audit_logs")
+      ]);
+
+    students = profileRows.filter(s => s.role === "student");
+    sessions = sessionRows;
+    attendance = attendanceRows;
+    auditLogs = auditRows;
+
+    renderAll();
+
+  } catch (error) {
+    console.error("Refresh error:", error);
+  } finally {
+    refreshing = false;
+
+    if (refreshAgain) {
+      refreshAgain = false;
+      refreshData();
+    }
+  }
 }
 
 function subscribeData() {
-  let refreshing = false;
-
-  const refresh = async () => {
-    if (refreshing) return;
-    refreshing = true;
-
-    try {
-      await Promise.all([
-        loadTable(
-          "profiles",
-          v => students = v.filter(x => x.role === "student"),
-          () => {
-            renderStudents();
-            renderDashboard();
-            renderManualStudentResults();
-          }
-        ),
-
-        loadTable(
-          "sessions",
-          v => sessions = v,
-          () => {
-            renderSessions();
-            renderDashboard();
-            fillSessionFilter();
-            fillManualAttendanceOptions();
-            renderStudents();
-          }
-        ),
-
-        loadTable(
-          "attendance",
-          v => attendance = v,
-          () => {
-            renderAttendance();
-            renderDashboard();
-            renderStudents();
-
-            $("reportSummary").textContent =
-              `إجمالي سجلات الحضور: ${allRecords().length}`;
-          }
-        ),
-
-        loadTable(
-          "audit_logs",
-          v => auditLogs = v,
-          renderAudit
-        )
-      ]);
-    } finally {
-      refreshing = false;
-    }
-  };
-
-  refresh();
+  cleanupSubscriptions();
+  refreshData();
 
   for (const tableName of [
     "profiles",
@@ -268,7 +313,7 @@ function subscribeData() {
     "audit_logs"
   ]) {
     const channel = supabase
-      .channel("admin-" + tableName + "-" + Math.random())
+      .channel(`admin-${tableName}-${crypto.randomUUID()}`)
       .on(
         "postgres_changes",
         {
@@ -276,7 +321,7 @@ function subscribeData() {
           schema: "public",
           table: tableName
         },
-        refresh
+        () => refreshData()
       )
       .subscribe();
 
@@ -284,8 +329,16 @@ function subscribeData() {
   }
 }
 
-function allRecords() {
-  return attendance;
+function renderAll() {
+  renderStudents();
+  renderSessions();
+  fillSessionFilter();
+  fillManualAttendanceOptions();
+  renderAttendance();
+  renderDashboard();
+  renderAudit();
+  renderReportSummary();
+  renderActiveQR();
 }
 
 // =====================================
@@ -293,104 +346,78 @@ function allRecords() {
 // =====================================
 
 function renderDashboard() {
-  const studentList = students.filter(s => !s.archived_at);
+  const year = $("dashboardYearFilter").value;
+  const branch = $("dashboardBranchFilter").value;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const todaySessions = sessions.filter(session =>
-    new Date(session.created_at).getTime() >= today.getTime()
+  const studentList = students.filter(s =>
+    !s.archived_at &&
+    cohortMatches(s, year, branch)
   );
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
 
   const todaySessionIds = new Set(
-    todaySessions.map(session => session.id)
+    sessions
+      .filter(s =>
+        cohortMatches(s, year, branch) &&
+        s.created_at &&
+        new Date(s.created_at).getTime() >= todayStart.getTime()
+      )
+      .map(s => String(s.id))
   );
 
-  const todayRows = allRecords().filter(record =>
-    todaySessionIds.has(record.session_id)
+  const todayRows = attendance.filter(r =>
+    todaySessionIds.has(String(r.session_id))
   );
 
-  const eligibleToday = studentList
-    .filter(student => student.active && !student.archived_at)
-    .reduce(
-      (sum, student) =>
-        sum + studentAttendanceStats(student, todaySessions).total,
-      0
-    );
+  const presentToday = todayRows.filter(r =>
+    recordStatus(r) === "present"
+  ).length;
 
-  const presentToday = new Set(
-    todayRows.map(record =>
-      `${record.student_id}:${record.session_id}`
-    )
-  ).size;
+  const absentToday = todayRows.filter(r =>
+    recordStatus(r) === "absent"
+  ).length;
 
   $("totalStudents").textContent = studentList.length;
   $("todayPresent").textContent = presentToday;
+  $("todayAbsent").textContent = absentToday;
 
-  $("todayAbsent").textContent =
-    Math.max(0, eligibleToday - presentToday);
+  $("totalSessions").textContent = sessions.filter(s =>
+    cohortMatches(s, year, branch)
+  ).length;
 
-  $("totalSessions").textContent = sessions.length;
-
-  const recent = [...allRecords()]
+  const recent = [...attendance]
+    .filter(r => {
+      const session = getSessionForRecord(r);
+      const item = session || r;
+      return cohortMatches(item, year, branch);
+    })
     .sort((a, b) =>
-      new Date(b.timestamp) - new Date(a.timestamp)
+      new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
     )
     .slice(0, 8);
 
   $("recentAttendance").innerHTML = recent.length
     ? table(
-        ["الطالب", "الكود", "المحاضرة", "طريقة التسجيل", "الوقت"],
+        ["الطالب", "الكود", "المحاضرة", "الحالة", "طريقة التسجيل", "الوقت"],
         recent.map(r => [
           esc(r.student_name),
           esc(r.student_code),
           esc(r.session_title),
+          statusText(recordStatus(r)),
           attendanceSourceText(r.source),
           dateText(r.timestamp)
         ])
       )
-    : '<div class="empty">لا توجد سجلات حضور بعد.</div>';
+    : '<div class="empty">لا توجد سجلات مطابقة.</div>';
 }
 
-// =====================================
-// إنشاء الجداول
-// =====================================
-
-function table(headers, rows) {
-  return `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            ${headers.map(h => `<th>${h}</th>`).join("")}
-          </tr>
-        </thead>
-        <tbody>
-          ${rows.map(row => `
-            <tr>
-              ${row.map(c => `<td>${c}</td>`).join("")}
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
+$("dashboardYearFilter").onchange = renderDashboard;
+$("dashboardBranchFilter").onchange = renderDashboard;
 
 // =====================================
-// مصدر تسجيل الحضور
-// =====================================
-
-function attendanceSourceText(source) {
-  if (source === "manual") {
-    return '<span class="pill" style="background:#164e36;color:#bbf7d0">يدوي</span>';
-  }
-
-  return '<span class="pill">QR</span>';
-}
-
-// =====================================
-// حساب حضور الطالب حسب المادة
+// حساب حضور الطالب حسب المواد
 // =====================================
 
 function studentAttendanceStats(student, sessionList = sessions) {
@@ -398,14 +425,28 @@ function studentAttendanceStats(student, sessionList = sessions) {
     ? new Date(student.created_at).getTime()
     : 0;
 
-  const eligible = sessionList.filter(session =>
-    !session.created_at ||
-    new Date(session.created_at).getTime() >= enrolledAt
-  );
+  const eligibleSessions = sessionList.filter(session => {
+    if (!isStudentInSession(student, session)) return false;
+
+    if (
+      session.created_at &&
+      new Date(session.created_at).getTime() < enrolledAt
+    ) {
+      return false;
+    }
+
+    const hasRecord = attendance.some(record =>
+      String(record.student_id) === String(student.id) &&
+      String(record.session_id) === String(session.id)
+    );
+
+    // لا نحسب الغياب قبل إنهاء المحاضرة.
+    return session.active !== true || hasRecord;
+  });
 
   const groups = new Map();
 
-  eligible.forEach(session => {
+  eligibleSessions.forEach(session => {
     const key = normalizeSubject(session.subject);
 
     if (!groups.has(key)) {
@@ -425,24 +466,28 @@ function studentAttendanceStats(student, sessionList = sessions) {
       group.sessions.map(s => String(s.id))
     );
 
-    const attendedIds = new Set(
-      attendance
-        .filter(record =>
-          (
-            String(record.student_id) === String(student.id) ||
-            (
-              !record.student_id &&
-              record.student_code === student.code
-            )
-          ) &&
-          ids.has(String(record.session_id))
-        )
-        .map(record => String(record.session_id))
+    const studentRows = attendance.filter(record =>
+      String(record.student_id) === String(student.id) &&
+      ids.has(String(record.session_id))
     );
 
+    const statusBySession = new Map();
+
+    studentRows.forEach(record => {
+      statusBySession.set(
+        String(record.session_id),
+        recordStatus(record)
+      );
+    });
+
     const total = group.sessions.length;
-    const attended = attendedIds.size;
-    const absent = Math.max(0, total - attended);
+    const attended = group.sessions.filter(s =>
+      statusBySession.get(String(s.id)) === "present"
+    ).length;
+
+    const absent = group.sessions.filter(s =>
+      statusBySession.get(String(s.id)) === "absent"
+    ).length;
 
     bySubject.push({
       subject: group.subject,
@@ -456,13 +501,11 @@ function studentAttendanceStats(student, sessionList = sessions) {
   });
 
   const attended = bySubject.reduce(
-    (sum, item) => sum + item.attended,
-    0
+    (sum, item) => sum + item.attended, 0
   );
 
   const absent = bySubject.reduce(
-    (sum, item) => sum + item.absent,
-    0
+    (sum, item) => sum + item.absent, 0
   );
 
   return {
@@ -474,25 +517,24 @@ function studentAttendanceStats(student, sessionList = sessions) {
 }
 
 // =====================================
-// عرض الطلاب
+// الطلاب
 // =====================================
 
 function renderStudents() {
-  const q = ($("studentSearch")?.value || "").toLowerCase();
+  const query = ($("studentSearch").value || "").trim().toLowerCase();
+  const year = $("studentYearFilter").value;
+  const branch = $("studentBranchFilter").value;
 
   const list = students
+    .filter(s => showArchivedStudents ? !!s.archived_at : !s.archived_at)
+    .filter(s => cohortMatches(s, year, branch))
     .filter(s =>
-      showArchivedStudents
-        ? !!s.archived_at
-        : !s.archived_at
-    )
-    .filter(s =>
-      `${s.name} ${s.code} ${s.branch || ""}`
+      `${s.name || ""} ${s.code || ""} ${s.branch || ""}`
         .toLowerCase()
-        .includes(q)
+        .includes(query)
     )
     .sort((a, b) =>
-      a.name.localeCompare(b.name, "ar")
+      String(a.name || "").localeCompare(String(b.name || ""), "ar")
     );
 
   $("studentCount").textContent = `${list.length} طالب`;
@@ -502,18 +544,18 @@ function renderStudents() {
         [
           "الاسم",
           "الكود",
+          "الفرقة",
           "الشعبة",
           "حضر",
           "غاب",
-          "نسبة الحضور",
+          "النسبة",
           "تفاصيل المواد",
           "الحالة",
           "تاريخ الإضافة",
           "الإجراءات"
         ],
-
-        list.map(s => {
-          const stats = studentAttendanceStats(s);
+        list.map(student => {
+          const stats = studentAttendanceStats(student);
 
           const percentage = stats.total
             ? Math.round(stats.attended / stats.total * 100)
@@ -529,178 +571,143 @@ function renderStudents() {
                   min-width:170px;
                 ">
                   <strong>${esc(item.subject)}</strong>
-
                   <div style="font-size:12px;margin-top:5px">
-                    <span class="pill green">
-                      حضر ${item.attended}
-                    </span>
-
-                    <span class="pill red">
-                      غاب ${item.absent}
-                    </span>
-
-                    <span class="pill">
-                      ${item.percentage}%
-                    </span>
+                    <span class="pill green">حضر ${item.attended}</span>
+                    <span class="pill red">غاب ${item.absent}</span>
+                    <span class="pill">${item.percentage}%</span>
                   </div>
                 </div>
               `).join("")
-            : "لا توجد محاضرات";
+            : "لا توجد محاضرات مكتملة";
+
+          let actions = "";
+
+          if (student.archived_at) {
+            actions = `
+              <button class="btn small success" data-restore="${esc(student.id)}">استعادة</button>
+              <button class="btn small danger" data-delete="${esc(student.id)}">حذف نهائي</button>
+            `;
+          } else {
+            actions = `
+              <button class="btn small secondary" data-edit="${esc(student.id)}">تعديل</button>
+              <button class="btn small ${student.active ? "danger" : "success"}"
+                data-toggle="${esc(student.id)}"
+                data-active="${!student.active}">
+                ${student.active ? "إيقاف" : "تفعيل"}
+              </button>
+              <button class="btn small secondary" data-archive="${esc(student.id)}">أرشفة</button>
+              <button class="btn small danger" data-delete="${esc(student.id)}">حذف نهائي</button>
+            `;
+          }
 
           return [
-            esc(s.name),
-            esc(s.code),
-            esc(s.branch || "غير محددة"),
-
+            esc(student.name),
+            esc(student.code),
+            esc(yearText(student.academic_year)),
+            esc(student.branch || "غير محددة"),
             `<span class="pill green">${stats.attended}</span>`,
-
             `<span class="pill red">${stats.absent}</span>`,
-
             `<span class="pill">${percentage}%</span>`,
-
             `<div>${subjectDetails}</div>`,
-
-            s.archived_at
+            student.archived_at
               ? '<span class="pill red">مؤرشف</span>'
-              : s.active
+              : student.active
                 ? '<span class="pill green">نشط</span>'
                 : '<span class="pill red">موقوف</span>',
-
-            dateText(s.created_at),
-
-            s.archived_at
-              ? `
-                <button class="btn small success" data-restore="${s.id}">
-                  استعادة
-                </button>
-
-                <button class="btn small danger" data-delete="${s.id}">
-                  حذف نهائي
-                </button>
-              `
-              : `
-                <button class="btn small secondary" data-edit="${s.id}">
-                  تعديل
-                </button>
-
-                <button
-                  class="btn small ${s.active ? "danger" : "success"}"
-                  data-toggle="${s.id}"
-                  data-active="${!s.active}">
-                  ${s.active ? "إيقاف" : "تفعيل"}
-                </button>
-
-                <button class="btn small secondary" data-archive="${s.id}">
-                  حذف آمن
-                </button>
-
-                <button class="btn small danger" data-delete="${s.id}">
-                  حذف نهائي
-                </button>
-              `
+            dateText(student.created_at),
+            actions
           ];
         })
       )
     : '<div class="empty">لا يوجد طلاب مطابقون.</div>';
 
-  $("studentsTable")
-    .querySelectorAll("[data-edit]")
-    .forEach(b => {
-      b.onclick = () => editStudent(b.dataset.edit);
-    });
-
-  $("studentsTable")
-    .querySelectorAll("[data-toggle]")
-    .forEach(b => {
-      b.onclick = async () => {
-        if (!confirm("هل تريد تغيير حالة حساب الطالب؟")) return;
-
-        try {
-          await call("setStudentActive", {
-            uid: b.dataset.toggle,
-            active: b.dataset.active === "true"
-          });
-        } catch (e) {
-          alert(errText(e));
-        }
-      };
-    });
-
-  $("studentsTable")
-    .querySelectorAll("[data-archive]")
-    .forEach(b => {
-      b.onclick = async () => {
-        if (!confirm(
-          "سيتم إخفاء الطالب وإيقاف حسابه مع الاحتفاظ بسجلات الحضور. هل تريد المتابعة؟"
-        )) return;
-
-        try {
-          await call("archiveStudent", {
-            uid: b.dataset.archive
-          });
-
-          alert("تمت أرشفة الطالب بنجاح.");
-
-        } catch (e) {
-          alert("تعذرت أرشفة الطالب: " + errText(e));
-        }
-      };
-    });
-
-  $("studentsTable")
-    .querySelectorAll("[data-restore]")
-    .forEach(b => {
-      b.onclick = async () => {
-        if (!confirm("هل تريد استعادة الطالب وتفعيل حسابه؟")) return;
-
-        try {
-          await call("restoreStudent", {
-            uid: b.dataset.restore
-          });
-
-          alert("تمت استعادة الطالب بنجاح.");
-
-        } catch (e) {
-          alert("تعذرت استعادة الطالب: " + errText(e));
-        }
-      };
-    });
-
-  $("studentsTable")
-    .querySelectorAll("[data-delete]")
-    .forEach(b => {
-      b.onclick = async () => {
-        if (!confirm(
-          "تحذير: سيتم حذف حساب الطالب وجميع سجلات حضوره نهائيًا. هل أنت متأكد؟"
-        )) return;
-
-        if (!confirm("تأكيد أخير: هل تريد الحذف النهائي بالفعل؟")) return;
-
-        try {
-          await call("deleteStudent", {
-            uid: b.dataset.delete
-          });
-
-          alert("تم حذف الطالب وسجلات حضوره نهائيًا.");
-
-        } catch (e) {
-          alert("تعذر الحذف: " + errText(e));
-        }
-      };
-    });
+  bindStudentActions();
 }
 
-// =====================================
-// البحث وعرض الطلاب المؤرشفين
-// =====================================
+function bindStudentActions() {
+  $("studentsTable").querySelectorAll("[data-edit]").forEach(button => {
+    button.onclick = () => editStudent(button.dataset.edit);
+  });
+
+  $("studentsTable").querySelectorAll("[data-toggle]").forEach(button => {
+    button.onclick = async () => {
+      if (!confirm("هل تريد تغيير حالة حساب الطالب؟")) return;
+
+      button.disabled = true;
+
+      try {
+        await api("setStudentActive", {
+          uid: button.dataset.toggle,
+          active: button.dataset.active === "true"
+        });
+        await refreshData();
+      } catch (error) {
+        alert(errText(error));
+        button.disabled = false;
+      }
+    };
+  });
+
+  $("studentsTable").querySelectorAll("[data-archive]").forEach(button => {
+    button.onclick = async () => {
+      if (!confirm("سيتم إخفاء الطالب وإيقاف حسابه مع الاحتفاظ بسجلات الحضور. هل تريد المتابعة؟")) return;
+
+      button.disabled = true;
+
+      try {
+        await api("archiveStudent", { uid: button.dataset.archive });
+        await refreshData();
+        alert("تمت أرشفة الطالب.");
+      } catch (error) {
+        alert("تعذرت الأرشفة: " + errText(error));
+        button.disabled = false;
+      }
+    };
+  });
+
+  $("studentsTable").querySelectorAll("[data-restore]").forEach(button => {
+    button.onclick = async () => {
+      if (!confirm("هل تريد استعادة الطالب وتفعيل حسابه؟")) return;
+
+      button.disabled = true;
+
+      try {
+        await api("restoreStudent", { uid: button.dataset.restore });
+        await refreshData();
+        alert("تمت استعادة الطالب.");
+      } catch (error) {
+        alert("تعذرت الاستعادة: " + errText(error));
+        button.disabled = false;
+      }
+    };
+  });
+
+  $("studentsTable").querySelectorAll("[data-delete]").forEach(button => {
+    button.onclick = async () => {
+      if (!confirm("تحذير: سيتم حذف حساب الطالب وجميع سجلات حضوره نهائيًا.")) return;
+      if (!confirm("تأكيد أخير: هل تريد الحذف النهائي؟")) return;
+
+      button.disabled = true;
+
+      try {
+        await api("deleteStudent", { uid: button.dataset.delete });
+        await refreshData();
+        alert("تم حذف الطالب.");
+      } catch (error) {
+        alert("تعذر الحذف: " + errText(error));
+        button.disabled = false;
+      }
+    };
+  });
+}
 
 $("studentSearch").oninput = renderStudents;
+$("studentYearFilter").onchange = renderStudents;
+$("studentBranchFilter").onchange = renderStudents;
 
 const archivedBtn = document.createElement("button");
-
 archivedBtn.className = "btn secondary";
 archivedBtn.textContent = "عرض الطلاب المؤرشفين";
-
 $("studentSearch").parentElement.appendChild(archivedBtn);
 
 archivedBtn.onclick = () => {
@@ -715,7 +722,7 @@ archivedBtn.onclick = () => {
 };
 
 // =====================================
-// إضافة طالب
+// إضافة وتعديل الطلاب
 // =====================================
 
 $("addStudentBtn").onclick = () => {
@@ -723,6 +730,7 @@ $("addStudentBtn").onclick = () => {
 
   $("editUid").value = "";
   $("studentCode").disabled = false;
+  $("studentAcademicYear").value = "";
   $("studentBranch").value = "";
 
   $("nationalIdField").style.display = "";
@@ -734,21 +742,17 @@ $("addStudentBtn").onclick = () => {
   modal("studentModal");
 };
 
-// =====================================
-// تعديل طالب
-// =====================================
-
 function editStudent(uid) {
-  const s = students.find(x => x.id === uid);
-
-  if (!s) return;
+  const student = getStudent(uid);
+  if (!student) return;
 
   $("studentForm").reset();
 
   $("editUid").value = uid;
-  $("studentName").value = s.name;
-  $("studentCode").value = s.code;
-  $("studentBranch").value = s.branch || "";
+  $("studentName").value = student.name || "";
+  $("studentCode").value = student.code || "";
+  $("studentAcademicYear").value = student.academic_year || "";
+  $("studentBranch").value = student.branch || "";
 
   $("studentCode").disabled = true;
 
@@ -761,155 +765,275 @@ function editStudent(uid) {
   modal("studentModal");
 }
 
-// =====================================
-// حفظ بيانات الطالب
-// =====================================
-
-$("studentForm").onsubmit = async e => {
-  e.preventDefault();
-
+$("studentForm").onsubmit = async event => {
+  event.preventDefault();
   $("studentFormMsg").innerHTML = "";
+
+  const button = $("studentForm").querySelector('[type="submit"]');
+  button.disabled = true;
 
   try {
     const uid = $("editUid").value;
     const name = $("studentName").value.trim();
     const branch = $("studentBranch").value;
+    const academicYear = Number($("studentAcademicYear").value);
 
-    if (!["شعبة عامة", "شعبة نظم"].includes(branch)) {
-      throw new Error("اختر شعبة الطالب.");
+    if (!YEARS.includes(academicYear)) {
+      throw new Error("اختر الفرقة الدراسية.");
+    }
+
+    if (!BRANCHES.includes(branch)) {
+      throw new Error("اختر الشعبة.");
     }
 
     if (uid) {
-      await call("updateStudent", {
+      await api("updateStudent", {
         uid,
         name,
-        branch
+        branch,
+        academicYear
       });
-
     } else {
-      await call("createStudent", {
+      await api("createStudent", {
         name,
         code: $("studentCode").value.trim(),
         nationalId: $("studentNationalId").value.trim(),
-        branch
+        branch,
+        academicYear
       });
     }
 
     modal("studentModal", false);
     $("studentForm").reset();
+    await refreshData();
 
-  } catch (err) {
+  } catch (error) {
     $("studentFormMsg").innerHTML =
-      `<div class="notice error">${esc(errText(err))}</div>`;
+      `<div class="notice error">${esc(errText(error))}</div>`;
+  } finally {
+    button.disabled = false;
   }
 };
 
 // =====================================
-// إنشاء محاضرة
+// إنشاء عدة محاضرات مستقلة
 // =====================================
 
-$("newSessionBtn").onclick = () =>
+$("newSessionBtn").onclick = () => {
+  $("sessionForm").reset();
+  $("sessionMsg").innerHTML = "";
+  $("sessionAcademicYear").value = "";
+  $("sessionBranch").value = "";
+  $("sessionDuration").value = 30;
   modal("sessionModal");
+};
 
-$("sessionForm").onsubmit = async e => {
-  e.preventDefault();
-
+$("sessionForm").onsubmit = async event => {
+  event.preventDefault();
   $("sessionMsg").innerHTML = "";
 
+  const button = $("sessionForm").querySelector('[type="submit"]');
+  button.disabled = true;
+
   try {
-    const result = await call("createSession", {
+    const academicYear = Number($("sessionAcademicYear").value);
+    const branch = $("sessionBranch").value;
+
+    if (!YEARS.includes(academicYear)) {
+      throw new Error("اختر الفرقة الدراسية.");
+    }
+
+    if (!BRANCHES.includes(branch)) {
+      throw new Error("اختر الشعبة.");
+    }
+
+    const response = await api("createSession", {
       subject: $("sessionSubject").value.trim(),
       title: $("sessionTitle").value.trim(),
-      durationMinutes: Number($("sessionDuration").value)
+      durationMinutes: Number($("sessionDuration").value),
+      academicYear,
+      branch
     });
 
-    currentSession = result.data;
+    if (!response?.id || !response?.token) {
+      throw new Error("تم إنشاء الطلب، لكن لم يصل رمز QR من السيرفر. راجع سجل المحاضرات قبل إعادة المحاولة.");
+    }
+
+    // الرمز الخام يبقى في ذاكرة الصفحة فقط.
+    qrTokens.set(String(response.id), response.token);
 
     modal("sessionModal", false);
+    $("sessionForm").reset();
+
+    await refreshData();
     renderActiveQR();
 
-  } catch (err) {
+  } catch (error) {
     $("sessionMsg").innerHTML =
-      `<div class="notice error">${esc(errText(err))}</div>`;
+      `<div class="notice error">${esc(errText(error))}</div>`;
+  } finally {
+    button.disabled = false;
   }
 };
 
 // =====================================
-// عرض QR
+// بطاقات QR لكل المحاضرات النشطة
 // =====================================
 
-function renderActiveQR() {
-  if (!currentSession) return;
+function sessionIsActive(session) {
+  return (
+    session.active === true &&
+    session.expires_at &&
+    new Date(session.expires_at).getTime() > Date.now()
+  );
+}
 
-  const payload = JSON.stringify({
-    sessionId: currentSession.id,
-    token: currentSession.token
-  });
+function filteredSessionsForQr() {
+  const year = $("sessionYearFilter").value;
+  const branch = $("sessionBranchFilter").value;
+
+  return sessions
+    .filter(session => sessionIsActive(session))
+    .filter(session => cohortMatches(session, year, branch))
+    .sort((a, b) =>
+      new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    );
+}
+
+function renderActiveQR() {
+  const active = filteredSessionsForQr();
+
+  if (!active.length) {
+    $("activeQr").innerHTML =
+      '<div class="empty">لا توجد محاضرات نشطة في المجموعة المختارة.</div>';
+    return;
+  }
 
   $("activeQr").innerHTML = `
-    <div style="text-align:center">
-      <span class="pill green">جلسة نشطة</span>
+    <div class="qr-grid">
+      ${active.map(session => {
+        const token = qrTokens.get(String(session.id));
 
-      <h3>${esc(currentSession.title)}</h3>
+        return `
+          <div class="qr-card" data-qr-card="${esc(session.id)}">
+            <span class="pill green">محاضرة نشطة</span>
 
-      <div id="qrBox">
-        <div id="qrCanvas"></div>
-      </div>
+            <h3>${esc(session.subject || "غير محددة")}</h3>
+            <div>${esc(session.title)}</div>
 
-      <p class="muted">
-        صالح حتى: ${dateText(currentSession.expiresAt)}
-      </p>
+            <div style="margin-top:8px">
+              <span class="cohort-label">${esc(yearText(session.academic_year))}</span>
+              <span class="cohort-label">${esc(session.branch || "شعبة غير محددة")}</span>
+            </div>
 
-      <button id="endCurrentSession" class="btn danger">
-        إنهاء الجلسة
-      </button>
+            ${
+              token
+                ? `<div class="qr-image"><div id="qr-${esc(session.id)}"></div></div>
+                   <div class="muted-small">صالح حتى: ${dateText(session.expires_at)}</div>`
+                : `<div class="qr-warning">
+                    رمز QR غير متاح بعد إعادة تحميل الصفحة.
+                    يمكنك إنهاء المحاضرة وإنشاء محاضرة جديدة للحصول على رمز جديد.
+                  </div>`
+            }
+
+            <button class="btn danger" data-end-session="${esc(session.id)}"
+              style="margin-top:12px">
+              إنهاء المحاضرة
+            </button>
+          </div>
+        `;
+      }).join("")}
     </div>
   `;
 
-  new QRCode($("qrCanvas"), {
-    text: payload,
-    width: 220,
-    height: 220,
-    colorDark: "#06152c",
-    colorLight: "#ffffff",
-    correctLevel: QRCode.CorrectLevel.H
+  active.forEach(session => {
+    const token = qrTokens.get(String(session.id));
+    if (!token) return;
+
+    const target = $(`qr-${session.id}`);
+    if (!target) return;
+
+    const payload = JSON.stringify({
+      sessionId: session.id,
+      token
+    });
+
+    new QRCode(target, {
+      text: payload,
+      width: 210,
+      height: 210,
+      colorDark: "#06152c",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.H
+    });
   });
 
-  $("endCurrentSession").onclick = async () => {
-    try {
-      await call("endSession", {
-        sessionId: currentSession.id
-      });
+  $("activeQr").querySelectorAll("[data-end-session]").forEach(button => {
+    button.onclick = async () => {
+      const sessionId = button.dataset.endSession;
+      const session = getSession(sessionId);
 
-      currentSession = null;
+      if (!session) {
+        alert("المحاضرة غير موجودة.");
+        return;
+      }
 
-      $("activeQr").innerHTML =
-        '<div class="empty">تم إنهاء الجلسة.</div>';
+      if (!confirm(
+        `هل تريد إنهاء محاضرة ${session.title}؟ سيتم تسجيل الغياب تلقائيًا لطلاب المجموعة النشطين الذين لم يسجلوا حضورهم.`
+      )) return;
 
-    } catch (e) {
-      alert(errText(e));
-    }
-  };
+      button.disabled = true;
+
+      try {
+        await api("endSession", { sessionId });
+
+        qrTokens.delete(String(sessionId));
+        await refreshData();
+
+        alert("تم إنهاء المحاضرة ومراجعة سجلات الغياب.");
+      } catch (error) {
+        alert("تعذر إنهاء المحاضرة: " + errText(error));
+        button.disabled = false;
+      }
+    };
+  });
 }
 
+$("sessionYearFilter").onchange = () => {
+  renderActiveQR();
+  renderSessions();
+};
+
+$("sessionBranchFilter").onchange = () => {
+  renderActiveQR();
+  renderSessions();
+};
+
 // =====================================
-// عرض المواد والمحاضرات المجمعة
+// قائمة المحاضرات وتجميعها
 // =====================================
 
 function renderSessions() {
-  const list = [...sessions].sort((a, b) =>
-    new Date(b.created_at) - new Date(a.created_at)
-  );
+  const year = $("sessionYearFilter").value;
+  const branch = $("sessionBranchFilter").value;
+
+  const list = sessions
+    .filter(s => cohortMatches(s, year, branch))
+    .sort((a, b) =>
+      new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    );
 
   const groups = new Map();
 
   list.forEach(session => {
-    const key = normalizeSubject(session.subject);
+    // لا نخلط مادة فرقة أو شعبة مع مجموعة أخرى.
+    const key = [
+      normalizeSubject(session.subject),
+      session.academic_year ?? "legacy",
+      session.branch || "legacy"
+    ].join("|");
 
-    if (!groups.has(key)) {
-      groups.set(key, []);
-    }
-
+    if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(session);
   });
 
@@ -917,177 +1041,228 @@ function renderSessions() {
     ? table(
         [
           "المادة",
+          "الفرقة والشعبة",
           "عدد المحاضرات",
           "آخر محاضرة",
           "آخر إنشاء",
           "الحالة",
           "الإجراءات"
         ],
-
         [...groups.values()].map(group => {
           const latest = group[0];
-
-          const active = group.some(s =>
-            s.active &&
-            Date.now() < new Date(s.expires_at).getTime()
-          );
+          const active = group.some(session => sessionIsActive(session));
 
           return [
             esc(latest.subject || "غير محددة"),
-
+            esc(cohortText(latest.academic_year, latest.branch)),
             `<span class="pill">${group.length} محاضرة</span>`,
-
             esc(latest.title),
-
             dateText(latest.created_at),
-
             active
               ? '<span class="pill green">نشطة</span>'
               : '<span class="pill red">منتهية</span>',
-
-            group.map(s => `
-              <button
-                class="btn small danger"
-                data-delete-session="${esc(s.id)}">
-                حذف ${dateText(s.created_at)}
-              </button>
-            `).join(" ")
+            group.map(session => `
+              <div style="margin:4px 0">
+                <span class="muted-small">${esc(session.title)} — ${dateText(session.created_at)}</span>
+                <button class="btn small danger"
+                  data-delete-session="${esc(session.id)}">
+                  حذف
+                </button>
+              </div>
+            `).join("")
           ];
         })
       )
-    : '<div class="empty">لا توجد محاضرات.</div>';
+    : '<div class="empty">لا توجد محاضرات مطابقة.</div>';
 
-  $("sessionsTable")
-    .querySelectorAll("[data-delete-session]")
-    .forEach(button => {
-      button.onclick = async () => {
-        const sessionId = button.dataset.deleteSession;
+  $("sessionsTable").querySelectorAll("[data-delete-session]").forEach(button => {
+    button.onclick = async () => {
+      const sessionId = button.dataset.deleteSession;
+      const session = getSession(sessionId);
 
-        const session = sessions.find(s =>
-          String(s.id) === String(sessionId)
+      if (!session) {
+        alert("المحاضرة غير موجودة.");
+        return;
+      }
+
+      if (!confirm(
+        `هل تريد حذف المحاضرة "${session.title}"؟ سيتم حذف سجلات حضورها أيضًا.`
+      )) return;
+
+      if (!confirm("تأكيد أخير: حذف المحاضرة وسجلاتها نهائيًا؟")) return;
+
+      button.disabled = true;
+
+      try {
+        await api("deleteSession", { sessionId });
+
+        qrTokens.delete(String(sessionId));
+        await refreshData();
+
+        alert("تم حذف المحاضرة.");
+      } catch (error) {
+        alert(
+          "تعذر حذف المحاضرة. قد تكون دالة الحذف المطلوبة غير موجودة في قاعدة البيانات.\n" +
+          errText(error)
         );
-
-        if (!session) {
-          alert("المحاضرة غير موجودة.");
-          return;
-        }
-
-        if (!confirm(
-          `هل تريد حذف المحاضرة "${session.title}"؟\nسيتم حذف سجلات حضورها أيضًا.`
-        )) return;
-
-        button.disabled = true;
-
-        try {
-          await call("deleteSession", { sessionId });
-
-          sessions = sessions.filter(s =>
-            String(s.id) !== String(sessionId)
-          );
-
-          attendance = attendance.filter(r =>
-            String(r.session_id) !== String(sessionId)
-          );
-
-          if (
-            currentSession &&
-            String(currentSession.id) === String(sessionId)
-          ) {
-            currentSession = null;
-
-            $("activeQr").innerHTML =
-              '<div class="empty">تم حذف المحاضرة.</div>';
-          }
-
-          renderSessions();
-          renderAttendance();
-          renderDashboard();
-          renderStudents();
-          fillSessionFilter();
-          fillManualAttendanceOptions();
-
-          $("reportSummary").textContent =
-            `إجمالي سجلات الحضور: ${allRecords().length}`;
-
-          alert("تم حذف المحاضرة بنجاح.");
-
-        } catch (e) {
-          alert("تعذر حذف المحاضرة: " + errText(e));
-          button.disabled = false;
-        }
-      };
-    });
+        button.disabled = false;
+      }
+    };
+  });
 }
 
 // =====================================
-// فلتر المواد والمحاضرات
+// فلاتر سجلات الحضور
 // =====================================
 
+function getAttendanceFilteredSessions() {
+  const year = $("attendanceYearFilter").value;
+  const branch = $("attendanceBranchFilter").value;
+
+  return sessions.filter(s => cohortMatches(s, year, branch));
+}
+
 function fillSessionFilter() {
-  const select = $("attendanceSession");
   const subjectSelect = $("attendanceSubject");
+  const sessionSelect = $("attendanceSession");
 
-  const old = select.value;
-  const oldSubject = subjectSelect?.value || "";
+  const oldSubject = subjectSelect.value;
+  const oldSession = sessionSelect.value;
 
-  if (subjectSelect) {
-    const subjectMap = new Map();
+  const filteredSessions = getAttendanceFilteredSessions();
+  const subjectMap = new Map();
 
-    sessions.forEach(s => {
-      const key = normalizeSubject(s.subject);
+  filteredSessions.forEach(session => {
+    const key = normalizeSubject(session.subject);
+    if (!subjectMap.has(key)) {
+      subjectMap.set(key, session.subject || "غير محددة");
+    }
+  });
 
-      if (!subjectMap.has(key)) {
-        subjectMap.set(key, s.subject || "غير محددة");
-      }
-    });
-
-    const subjects = [...subjectMap.entries()]
-      .sort((a, b) => a[1].localeCompare(b[1], "ar"));
-
-    subjectSelect.innerHTML =
-      '<option value="">كل المواد</option>' +
-      subjects.map(([key, subject]) =>
+  subjectSelect.innerHTML =
+    '<option value="">كل المواد</option>' +
+    [...subjectMap.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], "ar"))
+      .map(([key, subject]) =>
         `<option value="${esc(key)}">${esc(subject)}</option>`
       ).join("");
 
-    subjectSelect.value =
-      subjectMap.has(oldSubject)
-        ? oldSubject
-        : "";
-  }
+  subjectSelect.value = subjectMap.has(oldSubject) ? oldSubject : "";
 
-  const groups = [...new Map(
-    sessions
-      .filter(s =>
-        !subjectSelect?.value ||
-        normalizeSubject(s.subject) === subjectSelect.value
-      )
-      .map(s => {
-        const key = String(s.id);
+  const subjectSessions = filteredSessions.filter(session =>
+    !subjectSelect.value ||
+    normalizeSubject(session.subject) === subjectSelect.value
+  );
 
-        return [
-          key,
-          {
-            key,
-            label: `${s.title} - ${dateText(s.created_at)}`
-          }
-        ];
-      })
-  ).values()];
-
-  select.innerHTML =
+  sessionSelect.innerHTML =
     '<option value="">كل المحاضرات</option>' +
-    groups.map(g =>
-      `<option value="${esc(g.key)}">${esc(g.label)}</option>`
-    ).join("");
+    subjectSessions
+      .sort((a, b) =>
+        new Date(b.created_at || 0) - new Date(a.created_at || 0)
+      )
+      .map(session => `
+        <option value="${esc(session.id)}">
+          ${esc(session.title)} — ${esc(dateText(session.created_at))}
+        </option>
+      `).join("");
 
-  select.value = groups.some(g => g.key === old)
-    ? old
-    : "";
+  sessionSelect.value = subjectSessions.some(s =>
+    String(s.id) === String(oldSession)
+  ) ? oldSession : "";
 }
 
+function attendanceRowsForCurrentFilters() {
+  const year = $("attendanceYearFilter").value;
+  const branch = $("attendanceBranchFilter").value;
+  const subject = $("attendanceSubject").value;
+  const selectedSession = $("attendanceSession").value;
+  const query = $("attendanceSearch").value.trim().toLowerCase();
+
+  return attendance.filter(record => {
+    const session = getSessionForRecord(record);
+    const cohort = session || record;
+
+    if (!cohortMatches(cohort, year, branch)) return false;
+
+    if (
+      selectedSession &&
+      String(record.session_id) !== String(selectedSession)
+    ) return false;
+
+    if (
+      subject &&
+      normalizeSubject(session?.subject) !== subject
+    ) return false;
+
+    const searchable = [
+      record.student_name,
+      record.student_code,
+      record.session_title,
+      session?.subject
+    ].join(" ").toLowerCase();
+
+    return searchable.includes(query);
+  }).sort((a, b) =>
+    new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
+  );
+}
+
+function renderAttendance() {
+  const rows = attendanceRowsForCurrentFilters();
+
+  $("attendanceTable").innerHTML = rows.length
+    ? table(
+        [
+          "الطالب",
+          "الكود",
+          "الفرقة",
+          "الشعبة",
+          "المادة",
+          "المحاضرة",
+          "الحالة",
+          "طريقة التسجيل",
+          "وقت التسجيل"
+        ],
+        rows.map(record => {
+          const session = getSessionForRecord(record);
+          const cohort = session || record;
+
+          return [
+            esc(record.student_name),
+            esc(record.student_code),
+            esc(yearText(cohort.academic_year)),
+            esc(cohort.branch || "غير محددة"),
+            esc(session?.subject || "غير محددة"),
+            esc(record.session_title),
+            statusText(recordStatus(record)),
+            attendanceSourceText(record.source),
+            dateText(record.timestamp)
+          ];
+        })
+      )
+    : '<div class="empty">لا توجد سجلات مطابقة.</div>';
+}
+
+$("attendanceYearFilter").onchange = () => {
+  fillSessionFilter();
+  renderAttendance();
+};
+
+$("attendanceBranchFilter").onchange = () => {
+  fillSessionFilter();
+  renderAttendance();
+};
+
+$("attendanceSubject").onchange = () => {
+  fillSessionFilter();
+  renderAttendance();
+};
+
+$("attendanceSession").onchange = renderAttendance;
+$("attendanceSearch").oninput = renderAttendance;
+
 // =====================================
-// تسجيل الحضور اليدوي
+// الحضور اليدوي حسب مجموعة المحاضرة
 // =====================================
 
 const manualSubjectSelect = $("manualAttendanceSubject");
@@ -1099,10 +1274,7 @@ const manualSelectedBox = $("manualSelectedStudent");
 const manualSubmitBtn = $("saveManualAttendanceBtn");
 const manualMessage = $("manualAttendanceMsg");
 
-// المواد المتاحة في نافذة الحضور اليدوي
 function fillManualAttendanceOptions() {
-  if (!manualSubjectSelect || !manualSessionSelect) return;
-
   const oldSubject = manualSubjectSelect.value;
   const oldSession = manualSessionSelect.value;
 
@@ -1110,58 +1282,53 @@ function fillManualAttendanceOptions() {
 
   sessions.forEach(session => {
     const key = normalizeSubject(session.subject);
-
     if (!subjectMap.has(key)) {
       subjectMap.set(key, session.subject || "غير محددة");
     }
   });
 
-  const subjects = [...subjectMap.entries()]
-    .sort((a, b) => a[1].localeCompare(b[1], "ar"));
-
   manualSubjectSelect.innerHTML =
     '<option value="">اختر المادة</option>' +
-    subjects.map(([key, subject]) =>
-      `<option value="${esc(key)}">${esc(subject)}</option>`
-    ).join("");
+    [...subjectMap.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], "ar"))
+      .map(([key, subject]) =>
+        `<option value="${esc(key)}">${esc(subject)}</option>`
+      ).join("");
 
-  manualSubjectSelect.value =
-    subjectMap.has(oldSubject) ? oldSubject : "";
+  manualSubjectSelect.value = subjectMap.has(oldSubject)
+    ? oldSubject
+    : "";
 
   fillManualSessionOptions(oldSession);
 }
 
-// المحاضرات التابعة للمادة المختارة
 function fillManualSessionOptions(oldSession = "") {
-  if (!manualSessionSelect) return;
-
-  const selectedSubject = manualSubjectSelect.value;
+  const subject = manualSubjectSelect.value;
 
   const filtered = sessions
     .filter(session =>
-      selectedSubject &&
-      normalizeSubject(session.subject) === selectedSubject
+      subject &&
+      normalizeSubject(session.subject) === subject
     )
     .sort((a, b) =>
-      new Date(b.created_at) - new Date(a.created_at)
+      new Date(b.created_at || 0) - new Date(a.created_at || 0)
     );
 
   manualSessionSelect.innerHTML =
     '<option value="">اختر المحاضرة</option>' +
     filtered.map(session => `
       <option value="${esc(session.id)}">
-        ${esc(session.title)} — ${esc(dateText(session.created_at))}
+        ${esc(session.title)} — ${esc(yearText(session.academic_year))} — ${esc(session.branch || "شعبة غير محددة")} — ${esc(dateText(session.created_at))}
       </option>
     `).join("");
 
   manualSessionSelect.disabled = filtered.length === 0;
 
-  if (filtered.some(s => String(s.id) === String(oldSession))) {
-    manualSessionSelect.value = oldSession;
-  }
+  manualSessionSelect.value = filtered.some(s =>
+    String(s.id) === String(oldSession)
+  ) ? oldSession : "";
 }
 
-// تصفير اختيار الطالب
 function clearManualStudent() {
   manualStudentUidInput.value = "";
   manualSelectedBox.hidden = true;
@@ -1169,27 +1336,37 @@ function clearManualStudent() {
   manualSubmitBtn.disabled = true;
 }
 
-// إظهار نتائج البحث عن الطلاب
+function getManualSession() {
+  return getSession(manualSessionSelect.value);
+}
+
 function renderManualStudentResults() {
-  if (!manualResults || !manualSearchInput) return;
-
-  const query = manualSearchInput.value
-    .trim()
-    .toLowerCase();
-
   clearManualStudent();
 
-  if (!query) {
+  const query = manualSearchInput.value.trim().toLowerCase();
+  const session = getManualSession();
+
+  if (!query || !session) {
     manualResults.hidden = true;
     manualResults.innerHTML = "";
     return;
   }
 
+  const alreadyRecorded = new Set(
+    attendance
+      .filter(r => String(r.session_id) === String(session.id))
+      .map(r => String(r.student_id))
+  );
+
   const matches = students
     .filter(student =>
       student.role === "student" &&
       student.active === true &&
-      !student.archived_at
+      !student.archived_at &&
+      isStudentInSession(student, session)
+    )
+    .filter(student =>
+      !alreadyRecorded.has(String(student.id))
     )
     .filter(student =>
       `${student.name || ""} ${student.code || ""}`
@@ -1197,58 +1374,53 @@ function renderManualStudentResults() {
         .includes(query)
     )
     .sort((a, b) =>
-      String(a.name || "").localeCompare(
-        String(b.name || ""),
-        "ar"
-      )
+      String(a.name || "").localeCompare(String(b.name || ""), "ar")
     )
     .slice(0, 30);
 
   if (!matches.length) {
     manualResults.hidden = false;
     manualResults.innerHTML =
-      '<div class="empty">لا يوجد طالب نشط مطابق للبحث.</div>';
+      '<div class="empty">لا يوجد طالب مطابق غير مسجل في هذه المحاضرة.</div>';
     return;
   }
 
   manualResults.hidden = false;
 
   manualResults.innerHTML = matches.map(student => `
-    <button
-      type="button"
-      class="manual-student-item"
-      data-manual-student="${esc(student.id)}"
-    >
+    <button type="button" class="manual-student-item"
+      data-manual-student="${esc(student.id)}">
       <span>
         <strong>${esc(student.name)}</strong>
         <small style="display:block;color:#94a3b8;margin-top:4px">
           كود الطالب: ${esc(student.code)}
         </small>
       </span>
-
       <span class="pill green">نشط</span>
     </button>
   `).join("");
 
-  manualResults
-    .querySelectorAll("[data-manual-student]")
-    .forEach(button => {
-      button.onclick = () => {
-        const student = students.find(s =>
-          String(s.id) === String(button.dataset.manualStudent)
-        );
+  manualResults.querySelectorAll("[data-manual-student]").forEach(button => {
+    button.onclick = () => {
+      const student = getStudent(button.dataset.manualStudent);
+      const selectedSession = getManualSession();
 
-        if (!student || student.active !== true || student.archived_at) {
-          alert("هذا الطالب غير نشط أو غير متاح للتسجيل.");
-          return;
-        }
+      if (
+        !student ||
+        !selectedSession ||
+        student.active !== true ||
+        student.archived_at ||
+        !isStudentInSession(student, selectedSession)
+      ) {
+        alert("الطالب لا ينتمي إلى مجموعة المحاضرة أو حسابه غير نشط.");
+        return;
+      }
 
-        selectManualStudent(student);
-      };
-    });
+      selectManualStudent(student);
+    };
+  });
 }
 
-// اعتماد الطالب المختار
 function selectManualStudent(student) {
   manualStudentUidInput.value = student.id;
 
@@ -1256,24 +1428,22 @@ function selectManualStudent(student) {
   manualSelectedBox.innerHTML = `
     <strong>الطالب المختار</strong>
     <div style="margin-top:6px">${esc(student.name)}</div>
+    <div class="muted" style="font-size:12px">كود الطالب: ${esc(student.code)}</div>
     <div class="muted" style="font-size:12px">
-      كود الطالب: ${esc(student.code)}
+      ${esc(cohortText(student.academic_year, student.branch))}
     </div>
   `;
 
   manualResults.hidden = true;
   manualResults.innerHTML = "";
-
   manualSubmitBtn.disabled = false;
 }
 
-// فتح نافذة الحضور اليدوي
 $("openManualAttendanceBtn").onclick = () => {
   $("manualAttendanceForm").reset();
 
   manualMessage.innerHTML = "";
   manualSearchInput.value = "";
-
   clearManualStudent();
 
   manualResults.hidden = true;
@@ -1289,88 +1459,59 @@ $("openManualAttendanceBtn").onclick = () => {
   modal("manualAttendanceModal");
 };
 
-// تغيير المادة
 manualSubjectSelect.onchange = () => {
   fillManualSessionOptions();
-
   manualSearchInput.value = "";
   manualResults.hidden = true;
   manualResults.innerHTML = "";
-
   clearManualStudent();
   manualMessage.innerHTML = "";
 };
 
-// تغيير المحاضرة
 manualSessionSelect.onchange = () => {
+  manualSearchInput.value = "";
+  manualResults.hidden = true;
+  manualResults.innerHTML = "";
   clearManualStudent();
   manualMessage.innerHTML = "";
 };
 
-// البحث عن الطالب
 manualSearchInput.oninput = () => {
   manualMessage.innerHTML = "";
   renderManualStudentResults();
 };
 
-// تأكيد تسجيل الحضور اليدوي
-$("manualAttendanceForm").onsubmit = async e => {
-  e.preventDefault();
-
+$("manualAttendanceForm").onsubmit = async event => {
+  event.preventDefault();
   manualMessage.innerHTML = "";
 
-  const sessionId = manualSessionSelect.value;
-  const studentUid = manualStudentUidInput.value;
+  const session = getManualSession();
+  const student = getStudent(manualStudentUidInput.value);
 
-  if (!sessionId) {
+  if (!session || !student) {
     manualMessage.innerHTML =
-      '<div class="notice error">اختر المحاضرة أولاً.</div>';
-    return;
-  }
-
-  if (!studentUid) {
-    manualMessage.innerHTML =
-      '<div class="notice error">ابحث عن الطالب واختره من النتائج.</div>';
-    return;
-  }
-
-  const session = sessions.find(s =>
-    String(s.id) === String(sessionId)
-  );
-
-  const student = students.find(s =>
-    String(s.id) === String(studentUid)
-  );
-
-  if (!session) {
-    manualMessage.innerHTML =
-      '<div class="notice error">المحاضرة المختارة غير موجودة.</div>';
+      '<div class="notice error">اختر المحاضرة والطالب أولاً.</div>';
     return;
   }
 
   if (
-    !student ||
-    student.role !== "student" ||
     student.active !== true ||
-    student.archived_at
+    student.archived_at ||
+    !isStudentInSession(student, session)
   ) {
     manualMessage.innerHTML =
-      '<div class="notice error">الطالب غير نشط أو غير متاح للتسجيل.</div>';
+      '<div class="notice error">الطالب غير نشط أو لا ينتمي إلى مجموعة المحاضرة.</div>';
     return;
   }
 
-  if (attendance.some(record =>
-    String(record.session_id) === String(sessionId) &&
-    (
-      String(record.student_id) === String(studentUid) ||
-      (
-        !record.student_id &&
-        String(record.student_code) === String(student.code)
-      )
-    )
-  )) {
+  const existing = attendance.find(record =>
+    String(record.session_id) === String(session.id) &&
+    String(record.student_id) === String(student.id)
+  );
+
+  if (existing) {
     manualMessage.innerHTML =
-      '<div class="notice error">هذا الطالب مسجل حضوره بالفعل في هذه المحاضرة.</div>';
+      `<div class="notice error">يوجد سجل سابق لهذا الطالب في المحاضرة: ${recordStatus(existing) === "absent" ? "غائب" : "حاضر"}.</div>`;
     return;
   }
 
@@ -1378,57 +1519,15 @@ $("manualAttendanceForm").onsubmit = async e => {
   manualSubmitBtn.textContent = "جارٍ تسجيل الحضور...";
 
   try {
-    const result = await call("manualAttendance", {
-      sessionId,
-      studentUid
+    const response = await api("manualAttendance", {
+      sessionId: session.id,
+      studentUid: student.id
     });
 
-    if (result?.error) {
-      throw result.error;
-    }
-
-    const response = result?.data ?? result;
-
-    if (response?.ok === false) {
-      throw new Error(
-        response.message || response.error || "تعذر تسجيل الحضور."
-      );
-    }
-
     manualMessage.innerHTML =
-      `<div class="notice success">
-        ${esc(response?.message || "تم تسجيل حضور الطالب بنجاح.")}
-      </div>`;
+      `<div class="notice success">${esc(response.message || "تم تسجيل الحضور.")}</div>`;
 
-    // تحديث سجل الحضور مباشرة من قاعدة البيانات
-    const attendanceResult = await supabase
-      .from("attendance")
-      .select("*");
-
-    if (attendanceResult.error) {
-      console.error(
-        "Manual attendance refresh error:",
-        attendanceResult.error
-      );
-    } else {
-      attendance = attendanceResult.data || [];
-      renderAttendance();
-      renderDashboard();
-      renderStudents();
-
-      $("reportSummary").textContent =
-        `إجمالي سجلات الحضور: ${allRecords().length}`;
-    }
-
-    // تحديث سجل العمليات
-    const auditResult = await supabase
-      .from("audit_logs")
-      .select("*");
-
-    if (!auditResult.error) {
-      auditLogs = auditResult.data || [];
-      renderAudit();
-    }
+    await refreshData();
 
     manualSearchInput.value = "";
     clearManualStudent();
@@ -1438,7 +1537,6 @@ $("manualAttendanceForm").onsubmit = async e => {
 
     manualMessage.innerHTML =
       `<div class="notice error">${esc(errText(error))}</div>`;
-
   } finally {
     manualSubmitBtn.disabled = !manualStudentUidInput.value;
     manualSubmitBtn.textContent = "تأكيد تسجيل الحضور";
@@ -1446,122 +1544,93 @@ $("manualAttendanceForm").onsubmit = async e => {
 };
 
 // =====================================
-// عرض الحضور
+// التقارير وتصدير Excel
 // =====================================
 
-function renderAttendance() {
-  const selected = $("attendanceSession")?.value || "";
+function reportRows() {
+  const year = $("reportYearFilter").value;
+  const branch = $("reportBranchFilter").value;
 
-  const q = ($("attendanceSearch")?.value || "")
-    .toLowerCase();
-
-  const selectedSubject = $("attendanceSubject")?.value || "";
-
-  const rows = allRecords()
-    .filter(r => {
-      const session = sessions.find(s =>
-        String(s.id) === String(r.session_id)
-      );
-
-      const matchesSubject =
-        !selectedSubject ||
-        (
-          session &&
-          normalizeSubject(session.subject) === selectedSubject
-        );
-
-      const matchesLecture =
-        !selected ||
-        String(r.session_id) === selected;
-
-      return matchesSubject &&
-        matchesLecture &&
-        `${r.student_name} ${r.student_code} ${r.session_title}`
-          .toLowerCase()
-          .includes(q);
-    })
-    .sort((a, b) =>
-      new Date(b.timestamp) - new Date(a.timestamp)
-    );
-
-  $("attendanceTable").innerHTML = rows.length
-    ? table(
-        [
-          "الطالب",
-          "الكود",
-          "المادة",
-          "المحاضرة",
-          "الحالة",
-          "طريقة التسجيل",
-          "وقت التسجيل"
-        ],
-
-        rows.map(r => {
-          const session = sessions.find(s =>
-            String(s.id) === String(r.session_id)
-          );
-
-          return [
-            esc(r.student_name),
-            esc(r.student_code),
-            esc(session?.subject || "غير محددة"),
-            esc(r.session_title),
-            '<span class="pill green">حاضر</span>',
-            attendanceSourceText(r.source),
-            dateText(r.timestamp)
-          ];
-        })
-      )
-    : '<div class="empty">لا توجد سجلات مطابقة.</div>';
+  return attendance.filter(record => {
+    const session = getSessionForRecord(record);
+    return cohortMatches(session || record, year, branch);
+  });
 }
 
-$("attendanceSession").onchange = renderAttendance;
+function renderReportSummary() {
+  const rows = reportRows();
 
-$("attendanceSubject").onchange = () => {
-  fillSessionFilter();
-  renderAttendance();
-};
+  const present = rows.filter(r => recordStatus(r) === "present").length;
+  const absent = rows.filter(r => recordStatus(r) === "absent").length;
 
-$("attendanceSearch").oninput = renderAttendance;
+  $("reportSummary").innerHTML = `
+    <div class="grid">
+      <div class="stat">
+        <div class="stat-label">إجمالي السجلات</div>
+        <div class="stat-value">${rows.length}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">الحضور</div>
+        <div class="stat-value status-present">${present}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">الغياب</div>
+        <div class="stat-value status-absent">${absent}</div>
+      </div>
+    </div>
+  `;
+}
 
-// =====================================
-// تصدير Excel
-// =====================================
+$("reportYearFilter").onchange = renderReportSummary;
+$("reportBranchFilter").onchange = renderReportSummary;
 
 $("exportExcel").onclick = () => {
-  const rows = allRecords().map(r => {
-    const session = sessions.find(s =>
-      String(s.id) === String(r.session_id)
-    );
+  const rows = reportRows().map(record => {
+    const session = getSessionForRecord(record);
+    const cohort = session || record;
 
     return {
-      "اسم الطالب": r.student_name,
-      "كود الطالب": r.student_code,
+      "اسم الطالب": record.student_name,
+      "كود الطالب": record.student_code,
+      "الفرقة": yearText(cohort.academic_year),
+      "الشعبة": cohort.branch || "غير محددة",
       "المادة": session?.subject || "غير محددة",
-      "المحاضرة": r.session_title,
-      "الحالة": "حاضر",
-      "طريقة التسجيل": r.source === "manual" ? "يدوي" : "QR",
-      "التاريخ": dateText(r.timestamp)
+      "المحاضرة": record.session_title,
+      "الحالة": recordStatus(record) === "absent" ? "غائب" : "حاضر",
+      "طريقة التسجيل": record.source === "manual"
+        ? "يدوي"
+        : record.source === "system"
+          ? "غياب تلقائي"
+          : record.source === "legacy"
+            ? "سجل قديم"
+            : "QR",
+      "التاريخ": dateText(record.timestamp)
     };
   });
 
   if (!rows.length) {
-    alert("لا توجد بيانات للتصدير.");
+    alert("لا توجد بيانات للتصدير حسب الفلاتر المحددة.");
     return;
   }
 
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
+  if (typeof XLSX === "undefined") {
+    alert("مكتبة Excel لم يتم تحميلها.");
+    return;
+  }
 
-  XLSX.utils.book_append_sheet(
-    wb,
-    ws,
-    "Attendance"
-  );
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
+
+  const year = $("reportYearFilter").value || "all";
+  const branch = $("reportBranchFilter").value
+    ? $("reportBranchFilter").value.replace(/\s/g, "-")
+    : "all";
 
   XLSX.writeFile(
-    wb,
-    `MOZA-Attendance-${new Date().toISOString().slice(0, 10)}.xlsx`
+    workbook,
+    `MOZA-Attendance-${year}-${branch}-${new Date().toISOString().slice(0, 10)}.xlsx`
   );
 };
 
@@ -1572,53 +1641,56 @@ $("exportExcel").onclick = () => {
 function renderAudit() {
   const rows = [...auditLogs]
     .sort((a, b) =>
-      new Date(b.created_at) - new Date(a.created_at)
+      new Date(b.created_at || 0) - new Date(a.created_at || 0)
     )
     .slice(0, 200);
 
   $("auditTable").innerHTML = rows.length
     ? table(
         ["العملية", "المدير", "التفاصيل", "التوقيت"],
-
-        rows.map(a => [
-          esc(a.action),
-          esc(a.admin_uid),
-          esc(JSON.stringify(a.details || {})),
-          dateText(a.created_at)
+        rows.map(item => [
+          esc(item.action),
+          esc(item.admin_uid),
+          esc(JSON.stringify(item.details || {})),
+          dateText(item.created_at)
         ])
       )
     : '<div class="empty">لا توجد عمليات مسجلة.</div>';
 }
 
 // =====================================
-// التنقل بين صفحات الإدارة
+// التنقل وإغلاق النوافذ
 // =====================================
 
-document.querySelectorAll("[data-tab]").forEach(b => {
-  b.onclick = () => {
-    document.querySelectorAll("[data-tab]").forEach(x =>
-      x.classList.toggle("active", x === b)
+document.querySelectorAll("[data-tab]").forEach(button => {
+  button.onclick = () => {
+    document.querySelectorAll("[data-tab]").forEach(item =>
+      item.classList.toggle("active", item === button)
     );
 
-    document.querySelectorAll("main section").forEach(s => {
-      s.hidden = s.id !== `tab-${b.dataset.tab}`;
+    document.querySelectorAll("main section").forEach(section => {
+      section.hidden = section.id !== `tab-${button.dataset.tab}`;
     });
+
+    if (button.dataset.tab === "sessions") {
+      renderActiveQR();
+    }
+
+    if (button.dataset.tab === "attendance") {
+      fillSessionFilter();
+      renderAttendance();
+    }
   };
 });
 
-// =====================================
-// إغلاق النوافذ المنبثقة
-// =====================================
-
-document.querySelectorAll("[data-close]").forEach(b => {
-  b.onclick = () =>
-    modal(b.dataset.close, false);
+document.querySelectorAll("[data-close]").forEach(button => {
+  button.onclick = () => modal(button.dataset.close, false);
 });
 
-document.querySelectorAll(".modal").forEach(m => {
-  m.addEventListener("click", e => {
-    if (e.target === m) {
-      modal(m.id, false);
+document.querySelectorAll(".modal").forEach(element => {
+  element.addEventListener("click", event => {
+    if (event.target === element) {
+      modal(element.id, false);
     }
   });
 });
