@@ -14,7 +14,7 @@
 </div>
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark">M</div>
+      <img class="hims-logo" src="https://lmsg2.himsb.online/pluginfile.php/1/theme_academi/logo/1767534359/HIMS.png" alt="HIMS">
       <div>
         HIMS
         <div class="muted" style="font-size:12px;font-weight:500">لوحة الإدارة</div>
@@ -140,6 +140,9 @@
         </div>
         <div class="panel">
           <div class="toolbar">
+            <select id="attendanceSubject" class="field" style="margin:0;max-width:220px">
+              <option value="">كل المواد</option>
+            </select>
             <select id="attendanceSession" class="field" style="margin:0;max-width:320px">
               <option value="">كل المحاضرات</option>
             </select>
@@ -230,6 +233,10 @@
       <button class="close" data-close="sessionModal">✕</button>
     </div>
     <form id="sessionForm">
+      <div class="field">
+        <label>المادة</label>
+        <input id="sessionSubject" required maxlength="100" placeholder="مثال: المحاسبة المالية">
+      </div>
       <div class="field">
         <label>اسم المحاضرة</label>
         <input id="sessionTitle" required maxlength="100">
