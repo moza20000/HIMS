@@ -460,9 +460,13 @@ async function main(req: Request) {
     if (action === "createSession") {
       requireAdmin();
 
+      const subject = String(body.subject || "").trim();
       const title = String(body.title || "").trim();
       const durationMinutes = Number(body.durationMinutes);
 
+      if (subject.length < 2 || subject.length > 100) {
+        throw new Error("اسم المادة غير صحيح.");
+      }
       if (title.length < 2 || title.length > 100) {
         throw new Error("اسم المحاضرة غير صحيح.");
       }
@@ -484,24 +488,27 @@ async function main(req: Request) {
       const { data: session, error } = await adminDb
         .from("sessions")
         .insert({
+          subject,
           title,
           created_by: uid,
           expires_at: expiresAt,
           active: true,
           token_hash: await sha256(token),
         })
-        .select("id,title,expires_at")
+        .select("id,subject,title,expires_at")
         .single();
 
       if (error) throw error;
 
       await audit("session_created", {
         sessionId: session.id,
+        subject,
         title,
       });
 
       return json({
         id: session.id,
+        subject: session.subject,
         title: session.title,
         token,
         expiresAt: new Date(session.expires_at).getTime(),
