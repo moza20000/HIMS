@@ -14,6 +14,9 @@ const $ = (id) => document.getElementById(id);
 let scanner = null;
 let scanning = false;
 let processingQR = false;
+let authCheckId = 0;
+
+const DEFAULT_SCAN_TEXT = "فتح الكاميرا ومسح QR";
 
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -26,6 +29,7 @@ const esc = (s) =>
 
 const msg = (id, text, type = "notice") => {
   const element = $(id);
+
   if (element) {
     element.innerHTML =
       `<div class="notice ${type}">${esc(text)}</div>`;
@@ -33,12 +37,73 @@ const msg = (id, text, type = "notice") => {
 };
 
 function setView(loggedIn) {
-  $("loginView").style.display = loggedIn ? "none" : "grid";
-  $("studentView").style.display = loggedIn ? "block" : "none";
+  if ($("loginView")) {
+    $("loginView").style.display = loggedIn ? "none" : "grid";
+  }
+
+  if ($("studentView")) {
+    $("studentView").style.display = loggedIn ? "block" : "none";
+  }
+}
+
+function formatAcademicYear(year) {
+  const years = {
+    1: "الأولى",
+    2: "الثانية",
+    3: "الثالثة",
+    4: "الرابعة"
+  };
+
+  return years[Number(year)] || "غير محددة";
+}
+
+function formatBranch(branch) {
+  const branches = {
+    general: "عامة",
+    systems: "نظم",
+    "عام": "عامة",
+    "نظم": "نظم"
+  };
+
+  return branches[branch] || branch || "غير محددة";
+}
+
+function showStudentGroup(profile) {
+  const year = formatAcademicYear(profile.academic_year);
+  const branch = formatBranch(profile.branch);
+
+  const element = $("welcomeBranch");
+
+  if (element) {
+    element.textContent =
+      `الفرقة: ${year} | الشعبة: ${branch}`;
+  }
+}
+
+async function stopScanner() {
+  if (!scanner || !scanning) {
+    scanning = false;
+    return;
+  }
+
+  try {
+    await scanner.stop();
+  } catch (error) {
+    console.warn("Scanner stop error:", error);
+  }
+
+  scanning = false;
+
+  if ($("scanBtn")) {
+    $("scanBtn").textContent = DEFAULT_SCAN_TEXT;
+  }
 }
 
 async function showUser(user) {
+  const currentCheck = ++authCheckId;
+
   if (!user) {
+    await stopScanner();
     setView(false);
     return;
   }
@@ -46,12 +111,17 @@ async function showUser(user) {
   try {
     const { data: profile, error } = await studentSupabase
       .from("profiles")
-      .select("id,name,code,branch,active,role")
+      .select(
+        "id,name,code,branch,academic_year,active,role,archived_at"
+      )
       .eq("id", user.id)
       .maybeSingle();
 
+    if (currentCheck !== authCheckId) return;
+
     if (error) {
       console.error("Profile loading error:", error);
+
       await studentSignOut();
       setView(false);
 
@@ -60,35 +130,56 @@ async function showUser(user) {
         "تعذر قراءة بيانات الطالب. تحقق من صلاحيات قاعدة البيانات.",
         "error"
       );
+
       return;
     }
 
     if (
       !profile ||
       profile.active !== true ||
-      profile.role !== "student"
+      profile.role !== "student" ||
+      profile.archived_at
     ) {
       await studentSignOut();
       setView(false);
 
       msg(
         "loginMsg",
-        "الحساب غير نشط أو غير مسجل كطالب.",
+        "الحساب غير نشط أو مؤرشف أو غير مسجل كطالب.",
         "error"
       );
+
       return;
     }
 
-    $("welcomeName").textContent =
-      `أهلاً ${profile.name || "بك"}`;
+    if (
+      !profile.academic_year ||
+      !profile.branch
+    ) {
+      await studentSignOut();
+      setView(false);
 
-    $("welcomeBranch").textContent =
-      `الشعبة: ${profile.branch || "غير محددة"}`;
+      msg(
+        "loginMsg",
+        "بيانات الفرقة أو الشعبة غير مكتملة. تواصل مع الإدارة.",
+        "error"
+      );
+
+      return;
+    }
+
+    if ($("welcomeName")) {
+      $("welcomeName").textContent =
+        `أهلاً ${profile.name || "بك"}`;
+    }
+
+    showStudentGroup(profile);
 
     setView(true);
 
   } catch (error) {
     console.error("Student session error:", error);
+
     await studentSignOut();
     setView(false);
 
@@ -99,6 +190,10 @@ async function showUser(user) {
     );
   }
 }
+
+// =====================================
+// متابعة حالة تسجيل الدخول
+// =====================================
 
 onStudentAuthStateChanged((user) => {
   showUser(user);
@@ -123,10 +218,12 @@ $("studentLogin").onclick = async () => {
       "تأكد من كود الطالب والرقم القومي المكون من 14 رقمًا.",
       "error"
     );
+
     return;
   }
 
   const button = $("studentLogin");
+
   button.disabled = true;
   button.textContent = "جاري تسجيل الدخول...";
 
@@ -158,14 +255,28 @@ $("studentLogin").onclick = async () => {
 // =====================================
 
 $("logout").onclick = async () => {
+  const button = $("logout");
+
+  button.disabled = true;
+
   try {
-    if (scanner && scanning) {
-      await scanner.stop();
-      scanning = false;
-    }
+    await stopScanner();
 
     await studentSignOut();
+
     setView(false);
+
+    if ($("studentCode")) {
+      $("studentCode").value = "";
+    }
+
+    if ($("studentNationalId")) {
+      $("studentNationalId").value = "";
+    }
+
+    if ($("resultMsg")) {
+      $("resultMsg").innerHTML = "";
+    }
 
   } catch (error) {
     console.error("Logout error:", error);
@@ -175,6 +286,9 @@ $("logout").onclick = async () => {
       "تعذر تسجيل الخروج بشكل كامل.",
       "error"
     );
+
+  } finally {
+    button.disabled = false;
   }
 };
 
@@ -185,79 +299,110 @@ $("logout").onclick = async () => {
 $("scanBtn").onclick = async () => {
   if (processingQR) return;
 
-  const {
-    data: { user },
-    error
-  } = await studentAuth.getUser();
-
-  if (error || !user) {
-    msg("resultMsg", "سجّل الدخول أولاً.", "error");
-    return;
-  }
-
-  if (typeof Html5Qrcode === "undefined") {
-    msg(
-      "resultMsg",
-      "تعذر تحميل قارئ QR. تحقق من اتصال الإنترنت.",
-      "error"
-    );
-    return;
-  }
-
-  if (scanning) {
-    try {
-      await scanner.stop();
-      scanning = false;
-      $("scanBtn").textContent = "فتح الكاميرا ومسح QR";
-
-    } catch (error) {
-      console.error("Scanner stop error:", error);
-      msg("resultMsg", "تعذر إيقاف الكاميرا.", "error");
-    }
-    return;
-  }
-
-  scanner = new Html5Qrcode("reader");
+  const button = $("scanBtn");
 
   try {
+    const {
+      data: { user },
+      error
+    } = await studentAuth.getUser();
+
+    if (error || !user) {
+      msg("resultMsg", "سجّل الدخول أولاً.", "error");
+      return;
+    }
+
+    if (typeof Html5Qrcode === "undefined") {
+      msg(
+        "resultMsg",
+        "تعذر تحميل قارئ QR. تحقق من اتصال الإنترنت.",
+        "error"
+      );
+
+      return;
+    }
+
+    // إيقاف الكاميرا
+    if (scanning) {
+      await stopScanner();
+
+      msg("resultMsg", "تم إيقاف الكاميرا.");
+
+      return;
+    }
+
+    scanner = new Html5Qrcode("reader");
+
+    button.disabled = true;
+
     await scanner.start(
       { facingMode: "environment" },
       {
         fps: 10,
-        qrbox: { width: 240, height: 240 }
+        qrbox: {
+          width: 240,
+          height: 240
+        }
       },
 
       async (decoded) => {
         if (!scanning || processingQR) return;
 
         processingQR = true;
-        scanning = false;
+
+        await stopScanner();
 
         try {
-          await scanner.stop();
-        } catch (error) {
-          console.warn("Scanner stop:", error);
-        }
+          let payload;
 
-        $("scanBtn").textContent = "فتح الكاميرا ومسح QR";
+          try {
+            payload = JSON.parse(decoded);
+          } catch {
+            throw new Error("رمز QR غير صحيح.");
+          }
 
-        try {
-          const payload = JSON.parse(decoded);
-
-          if (!payload.sessionId || !payload.token) {
+          if (
+            !payload ||
+            typeof payload.sessionId !== "string" ||
+            typeof payload.token !== "string" ||
+            !payload.sessionId ||
+            !payload.token
+          ) {
             throw new Error("رمز QR غير مفهوم.");
           }
 
-          const result = await callStudent("markAttendance", {
-            sessionId: payload.sessionId,
-            token: payload.token
-          });
+          msg(
+            "resultMsg",
+            "جاري التحقق من المحاضرة وتسجيل الحضور..."
+          );
 
-          const attendance = result.data;
+          const result = await callStudent(
+            "markAttendance",
+            {
+              sessionId: payload.sessionId,
+              token: payload.token
+            }
+          );
+
+          if (result?.error) {
+            throw result.error;
+          }
+
+          const attendance = result?.data ?? result;
+
+          if (!attendance) {
+            throw new Error("لم يتم استلام تأكيد تسجيل الحضور.");
+          }
+
+          const studentName =
+            attendance.studentName || "الطالب";
+
+          const sessionTitle =
+            attendance.sessionTitle || "المحاضرة";
 
           msg(
             "resultMsg",
-            `تم تسجيل حضور ${attendance.studentName} في ${attendance.sessionTitle} بنجاح.`,
+            `تم تسجيل حضور ${studentName} في ${sessionTitle} بنجاح.`,
             "success-note"
           );
 
@@ -265,7 +410,7 @@ $("scanBtn").onclick = async () => {
           console.error("Attendance error:", error);
 
           const errorMessage =
-            error.message || "تعذر تسجيل الحضور.";
+            error?.message || "تعذر تسجيل الحضور.";
 
           msg(
             "resultMsg",
@@ -282,15 +427,17 @@ $("scanBtn").onclick = async () => {
     );
 
     scanning = true;
-    $("scanBtn").textContent = "إيقاف الكاميرا";
+
+    button.textContent = "إيقاف الكاميرا";
 
     msg(
       "resultMsg",
-      "وجّه الكاميرا نحو رمز QR الخاص بالمحاضرة."
+      "الكاميرا تعمل الآن. وجّهها نحو رمز QR الخاص بمحاضرتك."
     );
 
   } catch (error) {
     console.error("Camera error:", error);
+
     scanning = false;
 
     msg(
@@ -298,5 +445,8 @@ $("scanBtn").onclick = async () => {
       "تعذر تشغيل الكاميرا. اسمح للموقع باستخدام الكاميرا وتأكد من استخدام HTTPS.",
       "error"
     );
+
+  } finally {
+    button.disabled = false;
   }
 };
