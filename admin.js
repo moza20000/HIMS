@@ -41,6 +41,19 @@ const errText = e =>
   e?.message || "حدث خطأ غير متوقع.";
 
 // =====================================
+// توحيد أسماء المواد للمقارنة
+// =====================================
+
+function normalizeSubject(value) {
+  return String(value || "غير محددة")
+    .trim()
+    .replace(/ـ/g, "")
+    .replace(/[\u064B-\u065F\u0670]/g, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+// =====================================
 // تسجيل الدخول والتحقق من الإدارة
 // =====================================
 
@@ -100,7 +113,6 @@ onAuthStateChanged(async user => {
     $("loginMsg").innerHTML =
       `<div class="notice error">
         تم تسجيل الدخول، لكن لا يوجد سجل لهذا الحساب في جدول profiles.
-        لا تحذف الحساب؛ نحتاج إصلاح سجل الصلاحيات.
       </div>`;
 
     show("loginView");
@@ -113,8 +125,7 @@ onAuthStateChanged(async user => {
 
     $("loginMsg").innerHTML =
       `<div class="notice error">
-        تم العثور على الحساب، لكن الدور الحالي هو
-        (${esc(profile.role)}). المطلوب owner أو admin.
+        الدور الحالي غير مسموح له بدخول لوحة الإدارة.
       </div>`;
 
     show("loginView");
@@ -127,7 +138,7 @@ onAuthStateChanged(async user => {
 
     $("loginMsg").innerHTML =
       `<div class="notice error">
-        حساب الإدارة موجود لكنه غير نشط (active = false).
+        حساب الإدارة غير نشط.
       </div>`;
 
     show("loginView");
@@ -190,44 +201,57 @@ async function loadTable(tableName, assign, render) {
 }
 
 function subscribeData() {
-  const refresh = () => Promise.all([
-    loadTable(
-      "profiles",
-      v => students = v.filter(x => x.role === "student"),
-      () => {
-        renderStudents();
-        renderDashboard();
-      }
-    ),
+  let refreshing = false;
 
-    loadTable(
-      "sessions",
-      v => sessions = v,
-      () => {
-        renderSessions();
-        renderDashboard();
-        fillSessionFilter();
-      }
-    ),
+  const refresh = async () => {
+    if (refreshing) return;
+    refreshing = true;
 
-    loadTable(
-      "attendance",
-      v => attendance = v,
-      () => {
-        renderAttendance();
-        renderDashboard();
+    try {
+      await Promise.all([
+        loadTable(
+          "profiles",
+          v => students = v.filter(x => x.role === "student"),
+          () => {
+            renderStudents();
+            renderDashboard();
+          }
+        ),
 
-        $("reportSummary").textContent =
-          `إجمالي سجلات الحضور: ${allRecords().length}`;
-      }
-    ),
+        loadTable(
+          "sessions",
+          v => sessions = v,
+          () => {
+            renderSessions();
+            renderDashboard();
+            fillSessionFilter();
+            renderStudents();
+          }
+        ),
 
-    loadTable(
-      "audit_logs",
-      v => auditLogs = v,
-      renderAudit
-    )
-  ]);
+        loadTable(
+          "attendance",
+          v => attendance = v,
+          () => {
+            renderAttendance();
+            renderDashboard();
+            renderStudents();
+
+            $("reportSummary").textContent =
+              `إجمالي سجلات الحضور: ${allRecords().length}`;
+          }
+        ),
+
+        loadTable(
+          "audit_logs",
+          v => auditLogs = v,
+          renderAudit
+        )
+      ]);
+    } finally {
+      refreshing = false;
+    }
+  };
 
   refresh();
 
@@ -271,15 +295,34 @@ function renderDashboard() {
   const todaySessions = sessions.filter(session =>
     new Date(session.created_at).getTime() >= today.getTime()
   );
-  const todaySessionIds = new Set(todaySessions.map(session => session.id));
-  const todayRows = allRecords().filter(record => todaySessionIds.has(record.session_id));
-  const eligibleToday = studentList.filter(student => student.active && !student.archived_at)
-    .reduce((sum, student) => sum + studentAttendanceStats(student, todaySessions).total, 0);
-  const presentToday = new Set(todayRows.map(record => `${record.student_id}:${record.session_id}`)).size;
+
+  const todaySessionIds = new Set(
+    todaySessions.map(session => session.id)
+  );
+
+  const todayRows = allRecords().filter(record =>
+    todaySessionIds.has(record.session_id)
+  );
+
+  const eligibleToday = studentList
+    .filter(student => student.active && !student.archived_at)
+    .reduce(
+      (sum, student) =>
+        sum + studentAttendanceStats(student, todaySessions).total,
+      0
+    );
+
+  const presentToday = new Set(
+    todayRows.map(record =>
+      `${record.student_id}:${record.session_id}`
+    )
+  ).size;
 
   $("totalStudents").textContent = studentList.length;
   $("todayPresent").textContent = presentToday;
-  $("todayAbsent").textContent = Math.max(0, eligibleToday - presentToday);
+
+  $("todayAbsent").textContent =
+    Math.max(0, eligibleToday - presentToday);
 
   $("totalSessions").textContent = sessions.length;
 
@@ -328,21 +371,92 @@ function table(headers, rows) {
 }
 
 // =====================================
-// عرض الطلاب والحذف والاستعادة
+// حساب حضور الطالب حسب المادة
 // =====================================
 
-// إحصائيات الطالب: لا تُحسب المحاضرات التي أُنشئت قبل تسجيل الطالب.
 function studentAttendanceStats(student, sessionList = sessions) {
-  const enrolledAt = student.created_at ? new Date(student.created_at).getTime() : 0;
+  const enrolledAt = student.created_at
+    ? new Date(student.created_at).getTime()
+    : 0;
+
   const eligible = sessionList.filter(session =>
-    !session.created_at || new Date(session.created_at).getTime() >= enrolledAt
+    !session.created_at ||
+    new Date(session.created_at).getTime() >= enrolledAt
   );
-  const eligibleIds = new Set(eligible.map(session => session.id));
-  const attendedIds = new Set(attendance
-    .filter(record => record.student_id === student.id && eligibleIds.has(record.session_id))
-    .map(record => record.session_id));
-  return { attended: attendedIds.size, absent: Math.max(0, eligible.length - attendedIds.size), total: eligible.length };
+
+  const groups = new Map();
+
+  eligible.forEach(session => {
+    const key = normalizeSubject(session.subject);
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        subject: session.subject || "غير محددة",
+        sessions: []
+      });
+    }
+
+    groups.get(key).sessions.push(session);
+  });
+
+  const bySubject = [];
+
+  groups.forEach(group => {
+    const ids = new Set(
+      group.sessions.map(s => String(s.id))
+    );
+
+    const attendedIds = new Set(
+      attendance
+        .filter(record =>
+          (
+            String(record.student_id) === String(student.id) ||
+            (
+              !record.student_id &&
+              record.student_code === student.code
+            )
+          ) &&
+          ids.has(String(record.session_id))
+        )
+        .map(record => String(record.session_id))
+    );
+
+    const total = group.sessions.length;
+    const attended = attendedIds.size;
+    const absent = Math.max(0, total - attended);
+
+    bySubject.push({
+      subject: group.subject,
+      total,
+      attended,
+      absent,
+      percentage: total
+        ? Math.round(attended / total * 100)
+        : 0
+    });
+  });
+
+  const attended = bySubject.reduce(
+    (sum, item) => sum + item.attended,
+    0
+  );
+
+  const absent = bySubject.reduce(
+    (sum, item) => sum + item.absent,
+    0
+  );
+
+  return {
+    attended,
+    absent,
+    total: attended + absent,
+    bySubject
+  };
 }
+
+// =====================================
+// عرض الطلاب
+// =====================================
 
 function renderStudents() {
   const q = ($("studentSearch")?.value || "").toLowerCase();
@@ -354,69 +468,118 @@ function renderStudents() {
         : !s.archived_at
     )
     .filter(s =>
-      `${s.name} ${s.code} ${s.branch || ""}`.toLowerCase().includes(q)
+      `${s.name} ${s.code} ${s.branch || ""}`
+        .toLowerCase()
+        .includes(q)
     )
     .sort((a, b) =>
       a.name.localeCompare(b.name, "ar")
     );
 
-  $("studentCount").textContent =
-    `${list.length} طالب`;
+  $("studentCount").textContent = `${list.length} طالب`;
 
   $("studentsTable").innerHTML = list.length
     ? table(
-        ["الاسم", "الكود", "الشعبة", "حضر", "غاب", "الحالة", "تاريخ الإضافة", "الإجراءات"],
+        [
+          "الاسم",
+          "الكود",
+          "الشعبة",
+          "حضر",
+          "غاب",
+          "نسبة الحضور",
+          "تفاصيل المواد",
+          "الحالة",
+          "تاريخ الإضافة",
+          "الإجراءات"
+        ],
 
         list.map(s => {
           const stats = studentAttendanceStats(s);
-          const attended = stats.attended;
-          const absent = stats.absent;
+
+          const percentage = stats.total
+            ? Math.round(stats.attended / stats.total * 100)
+            : 0;
+
+          const subjectDetails = stats.bySubject.length
+            ? stats.bySubject.map(item => `
+                <div style="
+                  padding:8px;
+                  margin:4px 0;
+                  border:1px solid #334155;
+                  border-radius:8px;
+                  min-width:170px;
+                ">
+                  <strong>${esc(item.subject)}</strong>
+
+                  <div style="font-size:12px;margin-top:5px">
+                    <span class="pill green">
+                      حضر ${item.attended}
+                    </span>
+
+                    <span class="pill red">
+                      غاب ${item.absent}
+                    </span>
+
+                    <span class="pill">
+                      ${item.percentage}%
+                    </span>
+                  </div>
+                </div>
+              `).join("")
+            : "لا توجد محاضرات";
+
           return [
-          esc(s.name),
-          esc(s.code),
-          esc(s.branch || "غير محددة"),
-          `<span class="pill green">${attended}</span>`,
-          `<span class="pill red">${absent}</span>`,
+            esc(s.name),
+            esc(s.code),
+            esc(s.branch || "غير محددة"),
 
-          s.archived_at
-            ? '<span class="pill red">مؤرشف</span>'
-            : s.active
-              ? '<span class="pill green">نشط</span>'
-              : '<span class="pill red">موقوف</span>',
+            `<span class="pill green">${stats.attended}</span>`,
 
-          dateText(s.created_at),
+            `<span class="pill red">${stats.absent}</span>`,
 
-          s.archived_at
-            ? `
-              <button class="btn small success" data-restore="${s.id}">
-                استعادة
-              </button>
+            `<span class="pill">${percentage}%</span>`,
 
-              <button class="btn small danger" data-delete="${s.id}">
-                حذف نهائي
-              </button>
-            `
-            : `
-              <button class="btn small secondary" data-edit="${s.id}">
-                تعديل
-              </button>
+            `<div>${subjectDetails}</div>`,
 
-              <button
-                class="btn small ${s.active ? "danger" : "success"}"
-                data-toggle="${s.id}"
-                data-active="${!s.active}">
-                ${s.active ? "إيقاف" : "تفعيل"}
-              </button>
+            s.archived_at
+              ? '<span class="pill red">مؤرشف</span>'
+              : s.active
+                ? '<span class="pill green">نشط</span>'
+                : '<span class="pill red">موقوف</span>',
 
-              <button class="btn small secondary" data-archive="${s.id}">
-                حذف آمن
-              </button>
+            dateText(s.created_at),
 
-              <button class="btn small danger" data-delete="${s.id}">
-                حذف نهائي
-              </button>
-            `
-        ];
+            s.archived_at
+              ? `
+                <button class="btn small success" data-restore="${s.id}">
+                  استعادة
+                </button>
+
+                <button class="btn small danger" data-delete="${s.id}">
+                  حذف نهائي
+                </button>
+              `
+              : `
+                <button class="btn small secondary" data-edit="${s.id}">
+                  تعديل
+                </button>
+
+                <button
+                  class="btn small ${s.active ? "danger" : "success"}"
+                  data-toggle="${s.id}"
+                  data-active="${!s.active}">
+                  ${s.active ? "إيقاف" : "تفعيل"}
+                </button>
+
+                <button class="btn small secondary" data-archive="${s.id}">
+                  حذف آمن
+                </button>
+
+                <button class="btn small danger" data-delete="${s.id}">
+                  حذف نهائي
+                </button>
+              `
+          ];
         })
       )
     : '<div class="empty">لا يوجد طلاب مطابقون.</div>';
@@ -489,12 +652,10 @@ function renderStudents() {
     .forEach(b => {
       b.onclick = async () => {
         if (!confirm(
-          "تحذير: سيتم حذف حساب الطالب وجميع سجلات حضوره نهائيًا. هذا الإجراء لا يمكن التراجع عنه. هل أنت متأكد؟"
+          "تحذير: سيتم حذف حساب الطالب وجميع سجلات حضوره نهائيًا. هل أنت متأكد؟"
         )) return;
 
-        if (!confirm(
-          "تأكيد أخير: هل تريد الحذف النهائي بالفعل؟"
-        )) return;
+        if (!confirm("تأكيد أخير: هل تريد الحذف النهائي بالفعل؟")) return;
 
         try {
           await call("deleteStudent", {
@@ -535,7 +696,7 @@ archivedBtn.onclick = () => {
 };
 
 // =====================================
-// إضافة طالب جديد
+// إضافة طالب
 // =====================================
 
 $("addStudentBtn").onclick = () => {
@@ -543,7 +704,6 @@ $("addStudentBtn").onclick = () => {
 
   $("editUid").value = "";
   $("studentCode").disabled = false;
-
   $("studentBranch").value = "";
 
   $("nationalIdField").style.display = "";
@@ -576,16 +736,14 @@ function editStudent(uid) {
   $("nationalIdField").style.display = "none";
   $("studentNationalId").required = false;
 
-  $("studentModalTitle").textContent =
-    "تعديل بيانات الطالب";
-
+  $("studentModalTitle").textContent = "تعديل بيانات الطالب";
   $("studentFormMsg").innerHTML = "";
 
   modal("studentModal");
 }
 
 // =====================================
-// حفظ بيانات الطالب والشعبة
+// حفظ بيانات الطالب
 // =====================================
 
 $("studentForm").onsubmit = async e => {
@@ -672,6 +830,7 @@ function renderActiveQR() {
   $("activeQr").innerHTML = `
     <div style="text-align:center">
       <span class="pill green">جلسة نشطة</span>
+
       <h3>${esc(currentSession.title)}</h3>
 
       <div id="qrBox">
@@ -715,7 +874,7 @@ function renderActiveQR() {
 }
 
 // =====================================
-// عرض المحاضرات مع زر الحذف
+// عرض المواد والمحاضرات المجمعة
 // =====================================
 
 function renderSessions() {
@@ -723,24 +882,57 @@ function renderSessions() {
     new Date(b.created_at) - new Date(a.created_at)
   );
 
-  $("sessionsTable").innerHTML = list.length
-    ? table(
-        ["المادة", "المحاضرة", "عدد المرات", "آخر إنشاء", "الحالة", "الإجراءات"],
+  const groups = new Map();
 
-        Object.values(list.reduce((groups, session) => {
-          const key = `${session.subject || "غير محددة"}|||${session.title}`;
-          (groups[key] ||= []).push(session);
-          return groups;
-        }, {})).map(group => {
+  list.forEach(session => {
+    const key = normalizeSubject(session.subject);
+
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+
+    groups.get(key).push(session);
+  });
+
+  $("sessionsTable").innerHTML = groups.size
+    ? table(
+        [
+          "المادة",
+          "عدد المحاضرات",
+          "آخر محاضرة",
+          "آخر إنشاء",
+          "الحالة",
+          "الإجراءات"
+        ],
+
+        [...groups.values()].map(group => {
           const latest = group[0];
-          const active = group.some(s => s.active && Date.now() < new Date(s.expires_at).getTime());
+
+          const active = group.some(s =>
+            s.active &&
+            Date.now() < new Date(s.expires_at).getTime()
+          );
+
           return [
             esc(latest.subject || "غير محددة"),
+
+            `<span class="pill">${group.length} محاضرة</span>`,
+
             esc(latest.title),
-            String(group.length),
+
             dateText(latest.created_at),
-            active ? '<span class="pill green">نشطة</span>' : '<span class="pill red">منتهية</span>',
-            group.map(s => `<button class="btn small danger" data-delete-session="${esc(s.id)}">حذف ${dateText(s.created_at)}</button>`).join(" ")
+
+            active
+              ? '<span class="pill green">نشطة</span>'
+              : '<span class="pill red">منتهية</span>',
+
+            group.map(s => `
+              <button
+                class="btn small danger"
+                data-delete-session="${esc(s.id)}">
+                حذف ${dateText(s.created_at)}
+              </button>
+            `).join(" ")
           ];
         })
       )
@@ -751,7 +943,10 @@ function renderSessions() {
     .forEach(button => {
       button.onclick = async () => {
         const sessionId = button.dataset.deleteSession;
-        const session = sessions.find(s => s.id === sessionId);
+
+        const session = sessions.find(s =>
+          String(s.id) === String(sessionId)
+        );
 
         if (!session) {
           alert("المحاضرة غير موجودة.");
@@ -759,22 +954,26 @@ function renderSessions() {
         }
 
         if (!confirm(
-          `هل أنت متأكد من حذف المحاضرة "${session.title}"؟\n\nسيتم حذف سجلات الحضور المرتبطة بها أيضًا، ولا يمكن التراجع عن ذلك.`
+          `هل تريد حذف المحاضرة "${session.title}"؟\nسيتم حذف سجلات حضورها أيضًا.`
         )) return;
 
         button.disabled = true;
-        button.textContent = "جارٍ الحذف...";
 
         try {
           await call("deleteSession", { sessionId });
 
-          sessions = sessions.filter(s => s.id !== sessionId);
-
-          attendance = attendance.filter(
-            r => r.session_id !== sessionId
+          sessions = sessions.filter(s =>
+            String(s.id) !== String(sessionId)
           );
 
-          if (currentSession?.id === sessionId) {
+          attendance = attendance.filter(r =>
+            String(r.session_id) !== String(sessionId)
+          );
+
+          if (
+            currentSession &&
+            String(currentSession.id) === String(sessionId)
+          ) {
             currentSession = null;
 
             $("activeQr").innerHTML =
@@ -784,47 +983,87 @@ function renderSessions() {
           renderSessions();
           renderAttendance();
           renderDashboard();
+          renderStudents();
           fillSessionFilter();
 
           $("reportSummary").textContent =
             `إجمالي سجلات الحضور: ${allRecords().length}`;
 
-          alert("تم حذف المحاضرة وسجلات حضورها بنجاح.");
+          alert("تم حذف المحاضرة بنجاح.");
 
         } catch (e) {
           alert("تعذر حذف المحاضرة: " + errText(e));
-
           button.disabled = false;
-          button.textContent = "حذف المحاضرة";
         }
       };
     });
 }
 
 // =====================================
-// فلتر المحاضرات
+// فلتر المواد والمحاضرات
 // =====================================
 
 function fillSessionFilter() {
   const select = $("attendanceSession");
   const subjectSelect = $("attendanceSubject");
+
   const old = select.value;
   const oldSubject = subjectSelect?.value || "";
+
   if (subjectSelect) {
-    const subjects = [...new Set(sessions.map(s => s.subject || "غير محددة"))].sort((a,b) => a.localeCompare(b, "ar"));
-    subjectSelect.innerHTML = '<option value="">كل المواد</option>' + subjects.map(subject => `<option value="${esc(subject)}">${esc(subject)}</option>`).join("");
-    subjectSelect.value = subjects.includes(oldSubject) ? oldSubject : "";
+    const subjectMap = new Map();
+
+    sessions.forEach(s => {
+      const key = normalizeSubject(s.subject);
+
+      if (!subjectMap.has(key)) {
+        subjectMap.set(key, s.subject || "غير محددة");
+      }
+    });
+
+    const subjects = [...subjectMap.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], "ar"));
+
+    subjectSelect.innerHTML =
+      '<option value="">كل المواد</option>' +
+      subjects.map(([key, subject]) =>
+        `<option value="${esc(key)}">${esc(subject)}</option>`
+      ).join("");
+
+    subjectSelect.value =
+      subjectMap.has(oldSubject)
+        ? oldSubject
+        : "";
   }
 
-  const groups = [...new Map(sessions
-    .filter(s => !subjectSelect?.value || (s.subject || "غير محددة") === subjectSelect.value)
-    .map(s => {
-      const key = `${s.subject || "غير محددة"}|||${s.title}`;
-      return [key, { key, label: s.title }];
-    })).values()];
-  select.innerHTML = '<option value="">كل المحاضرات</option>' +
-    groups.map(g => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join("");
-  select.value = groups.some(g => g.key === old) ? old : "";
+  const groups = [...new Map(
+    sessions
+      .filter(s =>
+        !subjectSelect?.value ||
+        normalizeSubject(s.subject) === subjectSelect.value
+      )
+      .map(s => {
+        const key = String(s.id);
+
+        return [
+          key,
+          {
+            key,
+            label: `${s.title} - ${dateText(s.created_at)}`
+          }
+        ];
+      })
+  ).values()];
+
+  select.innerHTML =
+    '<option value="">كل المحاضرات</option>' +
+    groups.map(g =>
+      `<option value="${esc(g.key)}">${esc(g.label)}</option>`
+    ).join("");
+
+  select.value = groups.some(g => g.key === old)
+    ? old
+    : "";
 }
 
 // =====================================
@@ -832,23 +1071,35 @@ function fillSessionFilter() {
 // =====================================
 
 function renderAttendance() {
-  const selected =
-    $("attendanceSession")?.value || "";
+  const selected = $("attendanceSession")?.value || "";
 
-  const q =
-    ($("attendanceSearch")?.value || "").toLowerCase();
+  const q = ($("attendanceSearch")?.value || "")
+    .toLowerCase();
 
-  const selectedGroup = selected ? selected.split("|||") : null;
   const selectedSubject = $("attendanceSubject")?.value || "";
+
   const rows = allRecords()
     .filter(r => {
-      const session = sessions.find(s => s.id === r.session_id);
-      const matchesSubject = !selectedSubject || (session && (session.subject || "غير محددة") === selectedSubject);
-      const matchesLecture = !selectedGroup || (session && (session.subject || "غير محددة") === selectedGroup[0] && session.title === selectedGroup[1]);
-      return matchesSubject && matchesLecture &&
-      `${r.student_name} ${r.student_code} ${r.session_title}`
-        .toLowerCase()
-        .includes(q);
+      const session = sessions.find(s =>
+        String(s.id) === String(r.session_id)
+      );
+
+      const matchesSubject =
+        !selectedSubject ||
+        (
+          session &&
+          normalizeSubject(session.subject) === selectedSubject
+        );
+
+      const matchesLecture =
+        !selected ||
+        String(r.session_id) === selected;
+
+      return matchesSubject &&
+        matchesLecture &&
+        `${r.student_name} ${r.student_code} ${r.session_title}`
+          .toLowerCase()
+          .includes(q);
     })
     .sort((a, b) =>
       new Date(b.timestamp) - new Date(a.timestamp)
@@ -856,24 +1107,33 @@ function renderAttendance() {
 
   $("attendanceTable").innerHTML = rows.length
     ? table(
-        ["الطالب", "الكود", "المحاضرة", "الحالة", "وقت التسجيل"],
+        ["الطالب", "الكود", "المادة", "المحاضرة", "الحالة", "وقت التسجيل"],
 
-        rows.map(r => [
-          esc(r.student_name),
-          esc(r.student_code),
-          esc(r.session_title),
-          '<span class="pill green">حاضر</span>',
-          dateText(r.timestamp)
-        ])
+        rows.map(r => {
+          const session = sessions.find(s =>
+            String(s.id) === String(r.session_id)
+          );
+
+          return [
+            esc(r.student_name),
+            esc(r.student_code),
+            esc(session?.subject || "غير محددة"),
+            esc(r.session_title),
+            '<span class="pill green">حاضر</span>',
+            dateText(r.timestamp)
+          ];
+        })
       )
     : '<div class="empty">لا توجد سجلات مطابقة.</div>';
 }
 
 $("attendanceSession").onchange = renderAttendance;
+
 $("attendanceSubject").onchange = () => {
   fillSessionFilter();
   renderAttendance();
 };
+
 $("attendanceSearch").oninput = renderAttendance;
 
 // =====================================
@@ -881,13 +1141,20 @@ $("attendanceSearch").oninput = renderAttendance;
 // =====================================
 
 $("exportExcel").onclick = () => {
-  const rows = allRecords().map(r => ({
-    "اسم الطالب": r.student_name,
-    "كود الطالب": r.student_code,
-    "المحاضرة": r.session_title,
-    "الحالة": "حاضر",
-    "التاريخ": dateText(r.timestamp)
-  }));
+  const rows = allRecords().map(r => {
+    const session = sessions.find(s =>
+      String(s.id) === String(r.session_id)
+    );
+
+    return {
+      "اسم الطالب": r.student_name,
+      "كود الطالب": r.student_code,
+      "المادة": session?.subject || "غير محددة",
+      "المحاضرة": r.session_title,
+      "الحالة": "حاضر",
+      "التاريخ": dateText(r.timestamp)
+    };
+  });
 
   if (!rows.length) {
     alert("لا توجد بيانات للتصدير.");
