@@ -268,17 +268,18 @@ function renderDashboard() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const todayRows = allRecords().filter(r =>
-    new Date(r.timestamp).getTime() >= today.getTime()
+  const todaySessions = sessions.filter(session =>
+    new Date(session.created_at).getTime() >= today.getTime()
   );
+  const todaySessionIds = new Set(todaySessions.map(session => session.id));
+  const todayRows = allRecords().filter(record => todaySessionIds.has(record.session_id));
+  const eligibleToday = studentList.filter(student => student.active && !student.archived_at)
+    .reduce((sum, student) => sum + studentAttendanceStats(student, todaySessions).total, 0);
+  const presentToday = new Set(todayRows.map(record => `${record.student_id}:${record.session_id}`)).size;
 
   $("totalStudents").textContent = studentList.length;
-  $("todayPresent").textContent = todayRows.length;
-
-  $("todayAbsent").textContent = Math.max(
-    0,
-    studentList.filter(s => s.active).length - todayRows.length
-  );
+  $("todayPresent").textContent = presentToday;
+  $("todayAbsent").textContent = Math.max(0, eligibleToday - presentToday);
 
   $("totalSessions").textContent = sessions.length;
 
@@ -330,6 +331,19 @@ function table(headers, rows) {
 // عرض الطلاب والحذف والاستعادة
 // =====================================
 
+// إحصائيات الطالب: لا تُحسب المحاضرات التي أُنشئت قبل تسجيل الطالب.
+function studentAttendanceStats(student, sessionList = sessions) {
+  const enrolledAt = student.created_at ? new Date(student.created_at).getTime() : 0;
+  const eligible = sessionList.filter(session =>
+    !session.created_at || new Date(session.created_at).getTime() >= enrolledAt
+  );
+  const eligibleIds = new Set(eligible.map(session => session.id));
+  const attendedIds = new Set(attendance
+    .filter(record => record.student_id === student.id && eligibleIds.has(record.session_id))
+    .map(record => record.session_id));
+  return { attended: attendedIds.size, absent: Math.max(0, eligible.length - attendedIds.size), total: eligible.length };
+}
+
 function renderStudents() {
   const q = ($("studentSearch")?.value || "").toLowerCase();
 
@@ -351,12 +365,18 @@ function renderStudents() {
 
   $("studentsTable").innerHTML = list.length
     ? table(
-        ["الاسم", "الكود", "الشعبة", "الحالة", "تاريخ الإضافة", "الإجراءات"],
+        ["الاسم", "الكود", "الشعبة", "حضر", "غاب", "الحالة", "تاريخ الإضافة", "الإجراءات"],
 
-        list.map(s => [
+        list.map(s => {
+          const stats = studentAttendanceStats(s);
+          const attended = stats.attended;
+          const absent = stats.absent;
+          return [
           esc(s.name),
           esc(s.code),
           esc(s.branch || "غير محددة"),
+          `<span class="pill green">${attended}</span>`,
+          `<span class="pill red">${absent}</span>`,
 
           s.archived_at
             ? '<span class="pill red">مؤرشف</span>'
@@ -396,7 +416,8 @@ function renderStudents() {
                 حذف نهائي
               </button>
             `
-        ])
+        ];
+        })
       )
     : '<div class="empty">لا يوجد طلاب مطابقون.</div>';
 
@@ -620,6 +641,7 @@ $("sessionForm").onsubmit = async e => {
 
   try {
     const result = await call("createSession", {
+      subject: $("sessionSubject").value.trim(),
       title: $("sessionTitle").value.trim(),
       durationMinutes: Number($("sessionDuration").value)
     });
@@ -703,24 +725,24 @@ function renderSessions() {
 
   $("sessionsTable").innerHTML = list.length
     ? table(
-        ["المحاضرة", "تاريخ الإنشاء", "الصلاحية", "الحالة", "الإجراءات"],
+        ["المادة", "المحاضرة", "عدد المرات", "آخر إنشاء", "الحالة", "الإجراءات"],
 
-        list.map(s => [
-          esc(s.title),
-          dateText(s.created_at),
-          dateText(s.expires_at),
-
-          s.active &&
-          Date.now() < new Date(s.expires_at).getTime()
-            ? '<span class="pill green">نشطة</span>'
-            : '<span class="pill red">منتهية</span>',
-
-          `<button
-             class="btn small danger"
-             data-delete-session="${esc(s.id)}">
-             حذف المحاضرة
-           </button>`
-        ])
+        Object.values(list.reduce((groups, session) => {
+          const key = `${session.subject || "غير محددة"}|||${session.title}`;
+          (groups[key] ||= []).push(session);
+          return groups;
+        }, {})).map(group => {
+          const latest = group[0];
+          const active = group.some(s => s.active && Date.now() < new Date(s.expires_at).getTime());
+          return [
+            esc(latest.subject || "غير محددة"),
+            esc(latest.title),
+            String(group.length),
+            dateText(latest.created_at),
+            active ? '<span class="pill green">نشطة</span>' : '<span class="pill red">منتهية</span>',
+            group.map(s => `<button class="btn small danger" data-delete-session="${esc(s.id)}">حذف ${dateText(s.created_at)}</button>`).join(" ")
+          ];
+        })
       )
     : '<div class="empty">لا توجد محاضرات.</div>';
 
@@ -785,15 +807,24 @@ function renderSessions() {
 
 function fillSessionFilter() {
   const select = $("attendanceSession");
+  const subjectSelect = $("attendanceSubject");
   const old = select.value;
+  const oldSubject = subjectSelect?.value || "";
+  if (subjectSelect) {
+    const subjects = [...new Set(sessions.map(s => s.subject || "غير محددة"))].sort((a,b) => a.localeCompare(b, "ar"));
+    subjectSelect.innerHTML = '<option value="">كل المواد</option>' + subjects.map(subject => `<option value="${esc(subject)}">${esc(subject)}</option>`).join("");
+    subjectSelect.value = subjects.includes(oldSubject) ? oldSubject : "";
+  }
 
-  select.innerHTML =
-    '<option value="">كل المحاضرات</option>' +
-    sessions.map(s =>
-      `<option value="${esc(s.id)}">${esc(s.title)}</option>`
-    ).join("");
-
-  select.value = sessions.some(s => s.id === old) ? old : "";
+  const groups = [...new Map(sessions
+    .filter(s => !subjectSelect?.value || (s.subject || "غير محددة") === subjectSelect.value)
+    .map(s => {
+      const key = `${s.subject || "غير محددة"}|||${s.title}`;
+      return [key, { key, label: s.title }];
+    })).values()];
+  select.innerHTML = '<option value="">كل المحاضرات</option>' +
+    groups.map(g => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join("");
+  select.value = groups.some(g => g.key === old) ? old : "";
 }
 
 // =====================================
@@ -807,13 +838,18 @@ function renderAttendance() {
   const q =
     ($("attendanceSearch")?.value || "").toLowerCase();
 
+  const selectedGroup = selected ? selected.split("|||") : null;
+  const selectedSubject = $("attendanceSubject")?.value || "";
   const rows = allRecords()
-    .filter(r =>
-      (!selected || r.session_id === selected) &&
+    .filter(r => {
+      const session = sessions.find(s => s.id === r.session_id);
+      const matchesSubject = !selectedSubject || (session && (session.subject || "غير محددة") === selectedSubject);
+      const matchesLecture = !selectedGroup || (session && (session.subject || "غير محددة") === selectedGroup[0] && session.title === selectedGroup[1]);
+      return matchesSubject && matchesLecture &&
       `${r.student_name} ${r.student_code} ${r.session_title}`
         .toLowerCase()
-        .includes(q)
-    )
+        .includes(q);
+    })
     .sort((a, b) =>
       new Date(b.timestamp) - new Date(a.timestamp)
     );
@@ -834,6 +870,10 @@ function renderAttendance() {
 }
 
 $("attendanceSession").onchange = renderAttendance;
+$("attendanceSubject").onchange = () => {
+  fillSessionFilter();
+  renderAttendance();
+};
 $("attendanceSearch").oninput = renderAttendance;
 
 // =====================================
