@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
 :root{font-family:'Cairo',sans-serif;color:#eaf1ff;background:#080d19;font-synthesis:none}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 15% 0%,#142748 0,transparent 35%),#080d19}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:linear-gradient(115deg,rgba(5,11,24,.91),rgba(5,11,24,.82)),url('institute-background.png') center/cover fixed, #080d19}
 button,input,select{font:inherit}button{cursor:pointer;border:0}
 a{color:inherit;text-decoration:none}.shell{max-width:1440px;margin:auto;padding:24px}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
@@ -23,3 +23,5 @@ a{color:inherit;text-decoration:none}.shell{max-width:1440px;margin:auto;padding
 .student-main{max-width:680px;margin:0 auto;padding:24px}.student-card{text-align:center;padding:28px}.scanner{width:100%;max-width:420px;margin:16px auto;overflow:hidden;border-radius:14px}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{position:static}.nav{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.shell{padding:14px}.grid{grid-template-columns:1fr 1fr;gap:10px}.stat{padding:14px;min-height:110px}.stat-value{font-size:25px}.panel{padding:16px}.topbar{align-items:flex-start}.brand{font-size:18px}.nav{grid-template-columns:1fr 1fr}.section-head{align-items:flex-start;flex-direction:column}}
+
+.hims-logo{width:42px;height:42px;object-fit:contain;border-radius:8px;background:#fff;padding:3px}.admin-banner{display:none}
