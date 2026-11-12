@@ -1,107 +1,107 @@
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-import {
-  supabaseUrl,
-  supabasePublishableKey
-} from "./supabase-config.js";
+  import {
+    supabaseUrl,
+    supabasePublishableKey
+  } from "./supabase-config.js";
 
-// جلسة الإدارة المستقلة
-export const supabase = createClient(
-  supabaseUrl,
-  supabasePublishableKey,
-  {
-    auth: {
-      storageKey: "moza-admin-auth",
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true
-    }
-  }
-);
-
-export const auth = supabase.auth;
-
-export const signInWithPassword = (credentials) =>
-  auth.signInWithPassword(credentials);
-
-export const signOut = () => auth.signOut();
-
-export const onAuthStateChanged = (callback) =>
-  auth.onAuthStateChange((_event, session) => {
-    queueMicrotask(() => callback(session?.user || null));
-  });
-
-// جلسة الطالب المستقلة
-export const studentSupabase = createClient(
-  supabaseUrl,
-  supabasePublishableKey,
-  {
-    auth: {
-      storageKey: "moza-student-auth",
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true
-    }
-  }
-);
-
-export const studentAuth = studentSupabase.auth;
-
-export const studentSignInWithPassword = (credentials) =>
-  studentAuth.signInWithPassword(credentials);
-
-export const studentSignOut = () =>
-  studentAuth.signOut({ scope: "local" });
-
-export const onStudentAuthStateChanged = (callback) =>
-  studentAuth.onAuthStateChange((_event, session) => {
-    queueMicrotask(() => callback(session?.user || null));
-  });
-
-export const studentEmail = (code) =>
-  `student-${String(code).trim().toLowerCase()}@moza-attendance.app`;
-
-// استدعاء خدمات السيرفر
-async function invoke(client, name, data = {}) {
-  const { data: result, error } = await client.functions.invoke(
-    "super-service",
+  // جلسة الإدارة المستقلة
+  export const supabase = createClient(
+    supabaseUrl,
+    supabasePublishableKey,
     {
-      body: {
-        action: name,
-        ...data
+      auth: {
+        storageKey: "moza-admin-auth",
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
       }
     }
   );
 
-  if (error) {
-    let message = error.message || "تعذر الاتصال بالخدمة.";
+  export const auth = supabase.auth;
 
-    try {
-      const context = error.context;
-      if (context && typeof context.clone === "function") {
-        const body = await context.clone().json();
-        message = body.error || body.message || message;
+  export const signInWithPassword = (credentials) =>
+    auth.signInWithPassword(credentials);
+
+  export const signOut = () => auth.signOut();
+
+  export const onAuthStateChanged = (callback) =>
+    auth.onAuthStateChange((_event, session) => {
+      queueMicrotask(() => callback(session?.user || null));
+    });
+
+  // جلسة الطالب المستقلة
+  export const studentSupabase = createClient(
+    supabaseUrl,
+    supabasePublishableKey,
+    {
+      auth: {
+        storageKey: "moza-student-auth",
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
       }
-    } catch {}
+    }
+  );
 
-    console.error("MOZA API error:", error);
-    throw new Error(message);
+  export const studentAuth = studentSupabase.auth;
+
+  export const studentSignInWithPassword = (credentials) =>
+    studentAuth.signInWithPassword(credentials);
+
+  export const studentSignOut = () =>
+    studentAuth.signOut({ scope: "local" });
+
+  export const onStudentAuthStateChanged = (callback) =>
+    studentAuth.onAuthStateChange((_event, session) => {
+      queueMicrotask(() => callback(session?.user || null));
+    });
+
+  export const studentEmail = (code) =>
+    `student-${String(code).trim().toLowerCase()}@moza-attendance.app`;
+
+  // استدعاء خدمات السيرفر
+  async function invoke(client, name, data = {}) {
+    const { data: result, error } = await client.functions.invoke(
+      "super-service",
+      {
+        body: {
+          action: name,
+          ...data
+        }
+      }
+    );
+
+    if (error) {
+      let message = error.message || "تعذر الاتصال بالخدمة.";
+
+      try {
+        const context = error.context;
+        if (context && typeof context.clone === "function") {
+          const body = await context.clone().json();
+          message = body.error || body.message || message;
+        }
+      } catch {}
+
+      console.error("MOZA API error:", error);
+      throw new Error(message);
+    }
+
+    if (result?.error) {
+      throw new Error(result.error);
+    }
+
+    return { data: result };
   }
 
-  if (result?.error) {
-    throw new Error(result.error);
+  // للإدارة
+  export async function call(name, data = {}) {
+    return invoke(supabase, name, data);
   }
 
-  return { data: result };
-}
-
-// للإدارة
-export async function call(name, data = {}) {
-  return invoke(supabase, name, data);
-}
-
-// للطلاب
-export async function callStudent(name, data = {}) {
-  return invoke(studentSupabase, name, data);
-}
+  // للطلاب
+  export async function callStudent(name, data = {}) {
+    return invoke(studentSupabase, name, data);
+  }
