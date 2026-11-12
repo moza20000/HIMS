@@ -3,206 +3,392 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HIMS | الإدارة</title>
   <link rel="stylesheet" href="shared.css">
 </head>
+
 <body>
 <div class="shell">
+
+  <!-- بانر الإدارة -->
   <div class="admin-banner">
-  <img src="admin-banner.png" alt="HIMS لوحة الإدارة">
-</div>
+    <img src="admin-banner.png" alt="HIMS لوحة الإدارة">
+  </div>
+
+  <!-- الشريط العلوي -->
   <header class="topbar">
     <div class="brand">
-      <img class="hims-logo" src="https://lmsg2.himsb.online/pluginfile.php/1/theme_academi/logo/1767534359/HIMS.png" alt="HIMS">
+      <img
+        class="hims-logo"
+        src="https://lmsg2.himsb.online/pluginfile.php/1/theme_academi/logo/1767534359/HIMS.png"
+        alt="HIMS"
+      >
+
       <div>
         HIMS
-        <div class="muted" style="font-size:12px;font-weight:500">لوحة الإدارة</div>
+        <div class="muted" style="font-size:12px;font-weight:500">
+          لوحة الإدارة
+        </div>
       </div>
     </div>
+
     <div class="toolbar">
       <span id="adminEmail" class="muted"></span>
-      <button id="logoutBtn" class="btn secondary">تسجيل الخروج</button>
+      <button id="logoutBtn" class="btn secondary">
+        تسجيل الخروج
+      </button>
     </div>
   </header>
 
-  <div id="loginView" class="login-wrap" style="min-height:65vh;display:none">
+  <!-- تسجيل دخول الإدارة -->
+  <div
+    id="loginView"
+    class="login-wrap"
+    style="min-height:65vh;display:none"
+  >
     <div class="panel login-card">
+
       <div class="brand">
         <div class="brand-mark">M</div>
         HIMS
       </div>
-      <h2 style="text-align:center">دخول الإدارة</h2>
+
+      <h2 style="text-align:center">
+        دخول الإدارة
+      </h2>
+
       <div class="field">
         <label>البريد الإلكتروني</label>
-        <input id="adminEmailInput" type="email" autocomplete="username">
+        <input
+          id="adminEmailInput"
+          type="email"
+          autocomplete="username"
+        >
       </div>
+
       <div class="field">
         <label>كلمة المرور</label>
-        <input id="adminPassword" type="password" autocomplete="current-password">
+        <input
+          id="adminPassword"
+          type="password"
+          autocomplete="current-password"
+        >
       </div>
-      <button id="adminLogin" class="btn" style="width:100%">تسجيل الدخول</button>
+
+      <button
+        id="adminLogin"
+        class="btn"
+        style="width:100%"
+      >
+        تسجيل الدخول
+      </button>
+
       <div id="loginMsg"></div>
     </div>
   </div>
 
+  <!-- واجهة الإدارة -->
   <div id="appView" class="layout" style="display:none">
+
+    <!-- القائمة الجانبية -->
     <aside class="panel sidebar">
-      <div style="font-weight:800">القائمة الرئيسية</div>
+
+      <div style="font-weight:800">
+        القائمة الرئيسية
+      </div>
+
       <nav class="nav">
-        <button class="active" data-tab="dashboard">▦ الرئيسية</button>
-        <button data-tab="students">♙ الطلاب</button>
-        <button data-tab="sessions">▣ المحاضرات و QR</button>
-        <button data-tab="attendance">✓ سجلات الحضور</button>
-        <button data-tab="reports">▤ التقارير</button>
-        <button data-tab="security">◈ سجل العمليات</button>
+        <button class="active" data-tab="dashboard">
+          ▦ الرئيسية
+        </button>
+
+        <button data-tab="students">
+          ♙ الطلاب
+        </button>
+
+        <button data-tab="sessions">
+          ▣ المحاضرات و QR
+        </button>
+
+        <button data-tab="attendance">
+          ✓ سجلات الحضور
+        </button>
+
+        <button data-tab="reports">
+          ▤ التقارير
+        </button>
+
+        <button data-tab="security">
+          ◈ سجل العمليات
+        </button>
       </nav>
     </aside>
 
+    <!-- المحتوى الرئيسي -->
     <main class="content">
+
+      <!-- الرئيسية -->
       <section id="tab-dashboard">
+
         <div class="section-head">
           <div>
             <h2>لوحة التحكم</h2>
-            <div class="muted">ملخص أداء الحضور</div>
+            <div class="muted">
+              ملخص أداء الحضور والغياب
+            </div>
           </div>
         </div>
 
         <div class="grid">
+
           <div class="stat">
             <div class="stat-icon">♙</div>
             <div class="stat-label">إجمالي الطلاب</div>
             <div class="stat-value" id="totalStudents">—</div>
           </div>
+
           <div class="stat">
             <div class="stat-icon">✓</div>
             <div class="stat-label">الحضور اليوم</div>
             <div class="stat-value" id="todayPresent">—</div>
           </div>
+
           <div class="stat">
             <div class="stat-icon">×</div>
             <div class="stat-label">الغياب اليوم</div>
             <div class="stat-value" id="todayAbsent">—</div>
           </div>
+
           <div class="stat">
             <div class="stat-icon">▣</div>
             <div class="stat-label">عدد المحاضرات</div>
             <div class="stat-value" id="totalSessions">—</div>
           </div>
+
         </div>
 
         <div class="panel" style="margin-top:18px">
           <h3>آخر سجلات الحضور</h3>
-          <div id="recentAttendance" class="empty">جارٍ تحميل البيانات...</div>
+
+          <div id="recentAttendance" class="empty">
+            جارٍ تحميل البيانات...
+          </div>
         </div>
+
       </section>
 
+      <!-- إدارة الطلاب -->
       <section id="tab-students" hidden>
+
         <div class="section-head">
           <div>
             <h2>إدارة الطلاب</h2>
-            <div class="muted">إضافة وتعديل وتفعيل حسابات الطلاب</div>
+
+            <div class="muted">
+              متابعة حضور وغياب كل طالب ونسبة حضوره في كل مادة
+            </div>
           </div>
-          <button id="addStudentBtn" class="btn">＋ إضافة طالب</button>
+
+          <button id="addStudentBtn" class="btn">
+            ＋ إضافة طالب
+          </button>
         </div>
+
         <div class="panel">
+
           <div class="toolbar">
-            <input id="studentSearch" class="field" placeholder="ابحث بالاسم أو كود الطالب..." style="margin:0">
+            <input
+              id="studentSearch"
+              class="field"
+              placeholder="ابحث بالاسم أو كود الطالب..."
+              style="margin:0"
+            >
+
             <span id="studentCount" class="muted"></span>
           </div>
+
           <div id="studentsTable" style="margin-top:16px"></div>
+
         </div>
       </section>
 
+      <!-- إدارة المحاضرات -->
       <section id="tab-sessions" hidden>
+
         <div class="section-head">
           <div>
             <h2>إدارة المحاضرات</h2>
-            <div class="muted">إنشاء جلسة حضور برمز QR مؤقت</div>
+
+            <div class="muted">
+              إنشاء جلسات QR مستقلة وتجميع المحاضرات حسب المادة
+            </div>
           </div>
-          <button id="newSessionBtn" class="btn">＋ محاضرة جديدة</button>
+
+          <button id="newSessionBtn" class="btn">
+            ＋ محاضرة جديدة
+          </button>
         </div>
+
+        <!-- QR النشط -->
         <div class="panel">
-          <div id="activeQr" class="empty">لا توجد جلسة منشأة حاليًا.</div>
+          <div id="activeQr" class="empty">
+            لا توجد جلسة منشأة حاليًا.
+          </div>
         </div>
+
+        <!-- المحاضرات السابقة -->
         <div class="panel" style="margin-top:16px">
-          <h3>المحاضرات السابقة</h3>
+          <h3>المواد والمحاضرات السابقة</h3>
+
           <div id="sessionsTable"></div>
         </div>
+
       </section>
 
+      <!-- سجلات الحضور -->
       <section id="tab-attendance" hidden>
+
         <div class="section-head">
           <div>
             <h2>سجلات الحضور</h2>
-            <div class="muted">سجل الطلاب لكل جلسة</div>
+
+            <div class="muted">
+              متابعة حضور الطلاب حسب المادة والمحاضرة وتاريخ التسجيل
+            </div>
           </div>
         </div>
+
         <div class="panel">
+
           <div class="toolbar">
-            <select id="attendanceSubject" class="field" style="margin:0;max-width:220px">
+
+            <select
+              id="attendanceSubject"
+              class="field"
+              style="margin:0;max-width:220px"
+            >
               <option value="">كل المواد</option>
             </select>
-            <select id="attendanceSession" class="field" style="margin:0;max-width:320px">
+
+            <select
+              id="attendanceSession"
+              class="field"
+              style="margin:0;max-width:320px"
+            >
               <option value="">كل المحاضرات</option>
             </select>
-            <input id="attendanceSearch" class="field" style="margin:0" placeholder="ابحث باسم الطالب أو الكود">
+
+            <input
+              id="attendanceSearch"
+              class="field"
+              style="margin:0"
+              placeholder="ابحث باسم الطالب أو الكود"
+            >
+
           </div>
+
           <div id="attendanceTable" style="margin-top:16px"></div>
+
         </div>
       </section>
 
+      <!-- التقارير -->
       <section id="tab-reports" hidden>
+
         <div class="section-head">
           <div>
             <h2>التقارير</h2>
-            <div class="muted">تصدير بيانات الحضور إلى Excel</div>
+
+            <div class="muted">
+              تقارير الحضور والغياب ونسب حضور الطلاب حسب المواد
+            </div>
           </div>
-          <button id="exportExcel" class="btn success">تصدير Excel</button>
+
+          <button id="exportExcel" class="btn success">
+            تصدير Excel
+          </button>
         </div>
+
         <div class="panel">
-          <p class="muted">سيتم تصدير سجلات الحضور المتاحة في قاعدة البيانات مع اسم الطالب وكوده واسم المحاضرة والتوقيت.</p>
+
+          <p class="muted">
+            سيتم تصدير سجلات الحضور المتاحة في قاعدة البيانات
+            مع اسم الطالب وكوده واسم المادة والمحاضرة والتوقيت.
+          </p>
+
           <div id="reportSummary"></div>
+
         </div>
       </section>
 
+      <!-- سجل العمليات -->
       <section id="tab-security" hidden>
+
         <div class="section-head">
           <div>
             <h2>سجل الحماية والعمليات</h2>
-            <div class="muted">تسجيل إجراءات الإدارة المهمة</div>
+
+            <div class="muted">
+              متابعة وتسجيل إجراءات الإدارة المهمة
+            </div>
           </div>
         </div>
+
         <div class="panel">
-          <div id="auditTable" class="empty">جارٍ تحميل السجل...</div>
+
+          <div id="auditTable" class="empty">
+            جارٍ تحميل السجل...
+          </div>
+
         </div>
       </section>
+
     </main>
   </div>
 </div>
 
+<!-- نافذة إضافة وتعديل الطلاب -->
 <div id="studentModal" class="modal">
+
   <div class="modal-card">
+
     <div class="modal-head">
       <h3 id="studentModalTitle">إضافة طالب</h3>
-      <button class="close" data-close="studentModal">✕</button>
+
+      <button class="close" data-close="studentModal">
+        ✕
+      </button>
     </div>
 
     <form id="studentForm">
+
       <input id="editUid" type="hidden">
 
       <div class="field">
         <label>اسم الطالب بالكامل</label>
-        <input id="studentName" required minlength="3" maxlength="100">
+
+        <input
+          id="studentName"
+          required
+          minlength="3"
+          maxlength="100"
+        >
       </div>
 
       <div class="field">
         <label>كود الطالب</label>
-        <input id="studentCode" required pattern="[A-Za-z0-9_]{3,32}">
+
+        <input
+          id="studentCode"
+          required
+          pattern="[A-Za-z0-9_]{3,32}"
+        >
       </div>
 
       <div class="field">
         <label>شعبة الطالب</label>
+
         <select id="studentBranch" required>
           <option value="">اختر الشعبة</option>
           <option value="شعبة عامة">شعبة عامة</option>
@@ -212,7 +398,14 @@
 
       <div class="field" id="nationalIdField">
         <label>الرقم القومي (14 رقمًا)</label>
-        <input id="studentNationalId" inputmode="numeric" pattern="[0-9]{14}" maxlength="14" required>
+
+        <input
+          id="studentNationalId"
+          inputmode="numeric"
+          pattern="[0-9]{14}"
+          maxlength="14"
+          required
+        >
       </div>
 
       <div class="notice">
@@ -221,38 +414,81 @@
       </div>
 
       <div id="studentFormMsg"></div>
-      <button class="btn" type="submit">حفظ الطالب</button>
+
+      <button class="btn" type="submit">
+        حفظ الطالب
+      </button>
+
     </form>
   </div>
 </div>
 
+<!-- نافذة إنشاء محاضرة -->
 <div id="sessionModal" class="modal">
+
   <div class="modal-card">
+
     <div class="modal-head">
       <h3>إنشاء محاضرة</h3>
-      <button class="close" data-close="sessionModal">✕</button>
+
+      <button class="close" data-close="sessionModal">
+        ✕
+      </button>
     </div>
+
     <form id="sessionForm">
+
       <div class="field">
         <label>المادة</label>
-        <input id="sessionSubject" required maxlength="100" placeholder="مثال: المحاسبة المالية">
+
+        <input
+          id="sessionSubject"
+          required
+          maxlength="100"
+          placeholder="مثال: المحاسبة المالية"
+        >
       </div>
+
       <div class="field">
         <label>اسم المحاضرة</label>
-        <input id="sessionTitle" required maxlength="100">
+
+        <input
+          id="sessionTitle"
+          required
+          maxlength="100"
+        >
       </div>
+
       <div class="field">
         <label>مدة صلاحية QR بالدقائق</label>
-        <input id="sessionDuration" type="number" min="1" max="600" value="30" required>
+
+        <input
+          id="sessionDuration"
+          type="number"
+          min="1"
+          max="600"
+          value="30"
+          required
+        >
       </div>
-      <button class="btn" type="submit">إنشاء QR</button>
+
+      <button class="btn" type="submit">
+        إنشاء QR
+      </button>
+
       <div id="sessionMsg"></div>
+
     </form>
   </div>
 </div>
 
+<!-- المكتبات -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<!-- ملف الإدارة -->
 <script type="module" src="admin.js"></script>
+
 </body>
 </html>
