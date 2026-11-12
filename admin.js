@@ -19,11 +19,15 @@ let currentSession = null;
 let subscriptions = [];
 let showArchivedStudents = false;
 
-const show = (id, yes = true) =>
-  $(id).style.display = yes ? "" : "none";
+const show = (id, yes = true) => {
+  const el = $(id);
+  if (el) el.style.display = yes ? "" : "none";
+};
 
-const modal = (id, yes = true) =>
-  $(id).classList.toggle("open", yes);
+const modal = (id, yes = true) => {
+  const el = $(id);
+  if (el) el.classList.toggle("open", yes);
+};
 
 const esc = s =>
   String(s ?? "").replace(/[&<>"']/g, c => ({
@@ -215,6 +219,7 @@ function subscribeData() {
           () => {
             renderStudents();
             renderDashboard();
+            renderManualStudentResults();
           }
         ),
 
@@ -225,6 +230,7 @@ function subscribeData() {
             renderSessions();
             renderDashboard();
             fillSessionFilter();
+            fillManualAttendanceOptions();
             renderStudents();
           }
         ),
@@ -334,11 +340,12 @@ function renderDashboard() {
 
   $("recentAttendance").innerHTML = recent.length
     ? table(
-        ["الطالب", "الكود", "المحاضرة", "الوقت"],
+        ["الطالب", "الكود", "المحاضرة", "طريقة التسجيل", "الوقت"],
         recent.map(r => [
           esc(r.student_name),
           esc(r.student_code),
           esc(r.session_title),
+          attendanceSourceText(r.source),
           dateText(r.timestamp)
         ])
       )
@@ -368,6 +375,18 @@ function table(headers, rows) {
       </table>
     </div>
   `;
+}
+
+// =====================================
+// مصدر تسجيل الحضور
+// =====================================
+
+function attendanceSourceText(source) {
+  if (source === "manual") {
+    return '<span class="pill" style="background:#164e36;color:#bbf7d0">يدوي</span>';
+  }
+
+  return '<span class="pill">QR</span>';
 }
 
 // =====================================
@@ -985,6 +1004,7 @@ function renderSessions() {
           renderDashboard();
           renderStudents();
           fillSessionFilter();
+          fillManualAttendanceOptions();
 
           $("reportSummary").textContent =
             `إجمالي سجلات الحضور: ${allRecords().length}`;
@@ -1067,6 +1087,365 @@ function fillSessionFilter() {
 }
 
 // =====================================
+// تسجيل الحضور اليدوي
+// =====================================
+
+const manualSubjectSelect = $("manualAttendanceSubject");
+const manualSessionSelect = $("manualAttendanceSession");
+const manualSearchInput = $("manualStudentSearch");
+const manualStudentUidInput = $("manualStudentUid");
+const manualResults = $("manualStudentResults");
+const manualSelectedBox = $("manualSelectedStudent");
+const manualSubmitBtn = $("saveManualAttendanceBtn");
+const manualMessage = $("manualAttendanceMsg");
+
+// المواد المتاحة في نافذة الحضور اليدوي
+function fillManualAttendanceOptions() {
+  if (!manualSubjectSelect || !manualSessionSelect) return;
+
+  const oldSubject = manualSubjectSelect.value;
+  const oldSession = manualSessionSelect.value;
+
+  const subjectMap = new Map();
+
+  sessions.forEach(session => {
+    const key = normalizeSubject(session.subject);
+
+    if (!subjectMap.has(key)) {
+      subjectMap.set(key, session.subject || "غير محددة");
+    }
+  });
+
+  const subjects = [...subjectMap.entries()]
+    .sort((a, b) => a[1].localeCompare(b[1], "ar"));
+
+  manualSubjectSelect.innerHTML =
+    '<option value="">اختر المادة</option>' +
+    subjects.map(([key, subject]) =>
+      `<option value="${esc(key)}">${esc(subject)}</option>`
+    ).join("");
+
+  manualSubjectSelect.value =
+    subjectMap.has(oldSubject) ? oldSubject : "";
+
+  fillManualSessionOptions(oldSession);
+}
+
+// المحاضرات التابعة للمادة المختارة
+function fillManualSessionOptions(oldSession = "") {
+  if (!manualSessionSelect) return;
+
+  const selectedSubject = manualSubjectSelect.value;
+
+  const filtered = sessions
+    .filter(session =>
+      selectedSubject &&
+      normalizeSubject(session.subject) === selectedSubject
+    )
+    .sort((a, b) =>
+      new Date(b.created_at) - new Date(a.created_at)
+    );
+
+  manualSessionSelect.innerHTML =
+    '<option value="">اختر المحاضرة</option>' +
+    filtered.map(session => `
+      <option value="${esc(session.id)}">
+        ${esc(session.title)} — ${esc(dateText(session.created_at))}
+      </option>
+    `).join("");
+
+  manualSessionSelect.disabled = filtered.length === 0;
+
+  if (filtered.some(s => String(s.id) === String(oldSession))) {
+    manualSessionSelect.value = oldSession;
+  }
+}
+
+// تصفير اختيار الطالب
+function clearManualStudent() {
+  manualStudentUidInput.value = "";
+  manualSelectedBox.hidden = true;
+  manualSelectedBox.innerHTML = "";
+  manualSubmitBtn.disabled = true;
+}
+
+// إظهار نتائج البحث عن الطلاب
+function renderManualStudentResults() {
+  if (!manualResults || !manualSearchInput) return;
+
+  const query = manualSearchInput.value
+    .trim()
+    .toLowerCase();
+
+  clearManualStudent();
+
+  if (!query) {
+    manualResults.hidden = true;
+    manualResults.innerHTML = "";
+    return;
+  }
+
+  const matches = students
+    .filter(student =>
+      student.role === "student" &&
+      student.active === true &&
+      !student.archived_at
+    )
+    .filter(student =>
+      `${student.name || ""} ${student.code || ""}`
+        .toLowerCase()
+        .includes(query)
+    )
+    .sort((a, b) =>
+      String(a.name || "").localeCompare(
+        String(b.name || ""),
+        "ar"
+      )
+    )
+    .slice(0, 30);
+
+  if (!matches.length) {
+    manualResults.hidden = false;
+    manualResults.innerHTML =
+      '<div class="empty">لا يوجد طالب نشط مطابق للبحث.</div>';
+    return;
+  }
+
+  manualResults.hidden = false;
+
+  manualResults.innerHTML = matches.map(student => `
+    <button
+      type="button"
+      class="manual-student-item"
+      data-manual-student="${esc(student.id)}"
+    >
+      <span>
+        <strong>${esc(student.name)}</strong>
+        <small style="display:block;color:#94a3b8;margin-top:4px">
+          كود الطالب: ${esc(student.code)}
+        </small>
+      </span>
+
+      <span class="pill green">نشط</span>
+    </button>
+  `).join("");
+
+  manualResults
+    .querySelectorAll("[data-manual-student]")
+    .forEach(button => {
+      button.onclick = () => {
+        const student = students.find(s =>
+          String(s.id) === String(button.dataset.manualStudent)
+        );
+
+        if (!student || student.active !== true || student.archived_at) {
+          alert("هذا الطالب غير نشط أو غير متاح للتسجيل.");
+          return;
+        }
+
+        selectManualStudent(student);
+      };
+    });
+}
+
+// اعتماد الطالب المختار
+function selectManualStudent(student) {
+  manualStudentUidInput.value = student.id;
+
+  manualSelectedBox.hidden = false;
+  manualSelectedBox.innerHTML = `
+    <strong>الطالب المختار</strong>
+    <div style="margin-top:6px">${esc(student.name)}</div>
+    <div class="muted" style="font-size:12px">
+      كود الطالب: ${esc(student.code)}
+    </div>
+  `;
+
+  manualResults.hidden = true;
+  manualResults.innerHTML = "";
+
+  manualSubmitBtn.disabled = false;
+}
+
+// فتح نافذة الحضور اليدوي
+$("openManualAttendanceBtn").onclick = () => {
+  $("manualAttendanceForm").reset();
+
+  manualMessage.innerHTML = "";
+  manualSearchInput.value = "";
+
+  clearManualStudent();
+
+  manualResults.hidden = true;
+  manualResults.innerHTML = "";
+
+  fillManualAttendanceOptions();
+
+  manualSubjectSelect.value = "";
+  manualSessionSelect.innerHTML =
+    '<option value="">اختر المادة أولاً</option>';
+  manualSessionSelect.disabled = true;
+
+  modal("manualAttendanceModal");
+};
+
+// تغيير المادة
+manualSubjectSelect.onchange = () => {
+  fillManualSessionOptions();
+
+  manualSearchInput.value = "";
+  manualResults.hidden = true;
+  manualResults.innerHTML = "";
+
+  clearManualStudent();
+  manualMessage.innerHTML = "";
+};
+
+// تغيير المحاضرة
+manualSessionSelect.onchange = () => {
+  clearManualStudent();
+  manualMessage.innerHTML = "";
+};
+
+// البحث عن الطالب
+manualSearchInput.oninput = () => {
+  manualMessage.innerHTML = "";
+  renderManualStudentResults();
+};
+
+// تأكيد تسجيل الحضور اليدوي
+$("manualAttendanceForm").onsubmit = async e => {
+  e.preventDefault();
+
+  manualMessage.innerHTML = "";
+
+  const sessionId = manualSessionSelect.value;
+  const studentUid = manualStudentUidInput.value;
+
+  if (!sessionId) {
+    manualMessage.innerHTML =
+      '<div class="notice error">اختر المحاضرة أولاً.</div>';
+    return;
+  }
+
+  if (!studentUid) {
+    manualMessage.innerHTML =
+      '<div class="notice error">ابحث عن الطالب واختره من النتائج.</div>';
+    return;
+  }
+
+  const session = sessions.find(s =>
+    String(s.id) === String(sessionId)
+  );
+
+  const student = students.find(s =>
+    String(s.id) === String(studentUid)
+  );
+
+  if (!session) {
+    manualMessage.innerHTML =
+      '<div class="notice error">المحاضرة المختارة غير موجودة.</div>';
+    return;
+  }
+
+  if (
+    !student ||
+    student.role !== "student" ||
+    student.active !== true ||
+    student.archived_at
+  ) {
+    manualMessage.innerHTML =
+      '<div class="notice error">الطالب غير نشط أو غير متاح للتسجيل.</div>';
+    return;
+  }
+
+  if (attendance.some(record =>
+    String(record.session_id) === String(sessionId) &&
+    (
+      String(record.student_id) === String(studentUid) ||
+      (
+        !record.student_id &&
+        String(record.student_code) === String(student.code)
+      )
+    )
+  )) {
+    manualMessage.innerHTML =
+      '<div class="notice error">هذا الطالب مسجل حضوره بالفعل في هذه المحاضرة.</div>';
+    return;
+  }
+
+  manualSubmitBtn.disabled = true;
+  manualSubmitBtn.textContent = "جارٍ تسجيل الحضور...";
+
+  try {
+    const result = await call("manualAttendance", {
+      sessionId,
+      studentUid
+    });
+
+    if (result?.error) {
+      throw result.error;
+    }
+
+    const response = result?.data ?? result;
+
+    if (response?.ok === false) {
+      throw new Error(
+        response.message || response.error || "تعذر تسجيل الحضور."
+      );
+    }
+
+    manualMessage.innerHTML =
+      `<div class="notice success">
+        ${esc(response?.message || "تم تسجيل حضور الطالب بنجاح.")}
+      </div>`;
+
+    // تحديث سجل الحضور مباشرة من قاعدة البيانات
+    const attendanceResult = await supabase
+      .from("attendance")
+      .select("*");
+
+    if (attendanceResult.error) {
+      console.error(
+        "Manual attendance refresh error:",
+        attendanceResult.error
+      );
+    } else {
+      attendance = attendanceResult.data || [];
+      renderAttendance();
+      renderDashboard();
+      renderStudents();
+
+      $("reportSummary").textContent =
+        `إجمالي سجلات الحضور: ${allRecords().length}`;
+    }
+
+    // تحديث سجل العمليات
+    const auditResult = await supabase
+      .from("audit_logs")
+      .select("*");
+
+    if (!auditResult.error) {
+      auditLogs = auditResult.data || [];
+      renderAudit();
+    }
+
+    manualSearchInput.value = "";
+    clearManualStudent();
+
+  } catch (error) {
+    console.error("Manual attendance error:", error);
+
+    manualMessage.innerHTML =
+      `<div class="notice error">${esc(errText(error))}</div>`;
+
+  } finally {
+    manualSubmitBtn.disabled = !manualStudentUidInput.value;
+    manualSubmitBtn.textContent = "تأكيد تسجيل الحضور";
+  }
+};
+
+// =====================================
 // عرض الحضور
 // =====================================
 
@@ -1107,7 +1486,15 @@ function renderAttendance() {
 
   $("attendanceTable").innerHTML = rows.length
     ? table(
-        ["الطالب", "الكود", "المادة", "المحاضرة", "الحالة", "وقت التسجيل"],
+        [
+          "الطالب",
+          "الكود",
+          "المادة",
+          "المحاضرة",
+          "الحالة",
+          "طريقة التسجيل",
+          "وقت التسجيل"
+        ],
 
         rows.map(r => {
           const session = sessions.find(s =>
@@ -1120,6 +1507,7 @@ function renderAttendance() {
             esc(session?.subject || "غير محددة"),
             esc(r.session_title),
             '<span class="pill green">حاضر</span>',
+            attendanceSourceText(r.source),
             dateText(r.timestamp)
           ];
         })
@@ -1152,6 +1540,7 @@ $("exportExcel").onclick = () => {
       "المادة": session?.subject || "غير محددة",
       "المحاضرة": r.session_title,
       "الحالة": "حاضر",
+      "طريقة التسجيل": r.source === "manual" ? "يدوي" : "QR",
       "التاريخ": dateText(r.timestamp)
     };
   });
