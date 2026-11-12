@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
@@ -13,10 +12,7 @@
       color: #fff;
       border: none;
     }
-
-    .manual-attendance-btn:hover {
-      filter: brightness(1.1);
-    }
+    .manual-attendance-btn:hover { filter: brightness(1.1); }
 
     .manual-student-results {
       max-height: 260px;
@@ -25,7 +21,6 @@
       border-radius: 10px;
       margin-top: 8px;
     }
-
     .manual-student-item {
       width: 100%;
       display: flex;
@@ -40,370 +35,385 @@
       cursor: pointer;
       text-align: right;
     }
-
-    .manual-student-item:hover {
-      background: rgba(99, 102, 241, .13);
-    }
-
+    .manual-student-item:hover { background: rgba(99,102,241,.13); }
     .manual-student-item.selected {
-      background: rgba(22, 163, 74, .15);
+      background: rgba(22,163,74,.15);
       border-right: 3px solid #16a34a;
     }
-
     .manual-selected {
       padding: 12px;
       border-radius: 10px;
-      background: rgba(22, 163, 74, .12);
-      border: 1px solid rgba(22, 163, 74, .4);
+      background: rgba(22,163,74,.12);
+      border: 1px solid rgba(22,163,74,.4);
       margin-top: 12px;
     }
+    .manual-help { font-size: 12px; color: #94a3b8; margin-top: 6px; }
 
-    .manual-help {
-      font-size: 12px;
-      color: #94a3b8;
-      margin-top: 6px;
+    .cohort-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
     }
+    .cohort-filters select { min-width: 145px; margin: 0; }
+    .qr-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
+      gap: 14px;
+    }
+    .qr-card {
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 16px;
+      text-align: center;
+      background: rgba(15,23,42,.55);
+      min-width: 0;
+    }
+    .qr-card h3 { margin: 10px 0 5px; }
+    .qr-image {
+      display: flex;
+      justify-content: center;
+      background: white;
+      border-radius: 12px;
+      padding: 12px;
+      width: fit-content;
+      margin: 12px auto;
+    }
+    .qr-image img, .qr-image canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    .cohort-label {
+      display: inline-block;
+      border: 1px solid #475569;
+      border-radius: 20px;
+      padding: 4px 9px;
+      margin: 3px;
+      font-size: 12px;
+      color: #cbd5e1;
+    }
+    .qr-warning {
+      padding: 12px;
+      border-radius: 10px;
+      background: rgba(245,158,11,.1);
+      border: 1px solid rgba(245,158,11,.35);
+      color: #fcd34d;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    .status-present { color: #86efac; }
+    .status-absent { color: #fca5a5; }
+    .muted-small { color: #94a3b8; font-size: 12px; }
+    .filter-label { display: flex; flex-direction: column; gap: 5px; }
+    .filter-label span { font-size: 12px; color: #94a3b8; }
   </style>
 </head>
 
 <body>
 <div class="shell">
 
-  <!-- بانر الإدارة -->
   <div class="admin-banner">
     <img src="admin-banner.png" alt="HIMS لوحة الإدارة">
   </div>
 
-  <!-- الشريط العلوي -->
   <header class="topbar">
     <div class="brand">
-      <img
-        class="hims-logo"
+      <img class="hims-logo"
         src="https://lmsg2.himsb.online/pluginfile.php/1/theme_academi/logo/1767534359/HIMS.png"
-        alt="HIMS"
-      >
-
+        alt="HIMS">
       <div>
         HIMS
-        <div class="muted" style="font-size:12px;font-weight:500">
-          لوحة الإدارة
-        </div>
+        <div class="muted" style="font-size:12px;font-weight:500">لوحة الإدارة</div>
       </div>
     </div>
 
     <div class="toolbar">
       <span id="adminEmail" class="muted"></span>
-      <button id="logoutBtn" class="btn secondary">
-        تسجيل الخروج
-      </button>
+      <button id="logoutBtn" class="btn secondary">تسجيل الخروج</button>
     </div>
   </header>
 
-  <!-- تسجيل دخول الإدارة -->
-  <div
-    id="loginView"
-    class="login-wrap"
-    style="min-height:65vh;display:none"
-  >
+  <div id="loginView" class="login-wrap" style="min-height:65vh;display:none">
     <div class="panel login-card">
-
       <div class="brand">
         <div class="brand-mark">M</div>
         HIMS
       </div>
-
-      <h2 style="text-align:center">
-        دخول الإدارة
-      </h2>
+      <h2 style="text-align:center">دخول الإدارة</h2>
 
       <div class="field">
         <label>البريد الإلكتروني</label>
-        <input
-          id="adminEmailInput"
-          type="email"
-          autocomplete="username"
-        >
+        <input id="adminEmailInput" type="email" autocomplete="username">
       </div>
 
       <div class="field">
         <label>كلمة المرور</label>
-        <input
-          id="adminPassword"
-          type="password"
-          autocomplete="current-password"
-        >
+        <input id="adminPassword" type="password" autocomplete="current-password">
       </div>
 
-      <button
-        id="adminLogin"
-        class="btn"
-        style="width:100%"
-      >
-        تسجيل الدخول
-      </button>
-
+      <button id="adminLogin" class="btn" style="width:100%">تسجيل الدخول</button>
       <div id="loginMsg"></div>
     </div>
   </div>
 
-  <!-- واجهة الإدارة -->
   <div id="appView" class="layout" style="display:none">
-
-    <!-- القائمة الجانبية -->
     <aside class="panel sidebar">
-
-      <div style="font-weight:800">
-        القائمة الرئيسية
-      </div>
-
+      <div style="font-weight:800">القائمة الرئيسية</div>
       <nav class="nav">
-        <button class="active" data-tab="dashboard">
-          ▦ الرئيسية
-        </button>
-
-        <button data-tab="students">
-          ♙ الطلاب
-        </button>
-
-        <button data-tab="sessions">
-          ▣ المحاضرات و QR
-        </button>
-
-        <button data-tab="attendance">
-          ✓ سجلات الحضور
-        </button>
-
-        <button data-tab="reports">
-          ▤ التقارير
-        </button>
-
-        <button data-tab="security">
-          ◈ سجل العمليات
-        </button>
+        <button class="active" data-tab="dashboard">▦ الرئيسية</button>
+        <button data-tab="students">♙ الطلاب</button>
+        <button data-tab="sessions">▣ المحاضرات و QR</button>
+        <button data-tab="attendance">✓ سجلات الحضور</button>
+        <button data-tab="reports">▤ التقارير</button>
+        <button data-tab="security">◈ سجل العمليات</button>
       </nav>
     </aside>
 
-    <!-- المحتوى الرئيسي -->
     <main class="content">
 
       <!-- الرئيسية -->
       <section id="tab-dashboard">
-
         <div class="section-head">
           <div>
             <h2>لوحة التحكم</h2>
-            <div class="muted">
-              ملخص أداء الحضور والغياب
-            </div>
+            <div class="muted">ملخص أداء الحضور والغياب</div>
           </div>
         </div>
 
-        <div class="grid">
+        <div class="cohort-filters">
+          <label class="filter-label">
+            <span>الفرقة</span>
+            <select id="dashboardYearFilter" class="field">
+              <option value="">كل الفرق</option>
+              <option value="1">الفرقة الأولى</option>
+              <option value="2">الفرقة الثانية</option>
+              <option value="3">الفرقة الثالثة</option>
+              <option value="4">الفرقة الرابعة</option>
+            </select>
+          </label>
+          <label class="filter-label">
+            <span>الشعبة</span>
+            <select id="dashboardBranchFilter" class="field">
+              <option value="">كل الشعب</option>
+              <option value="شعبة عامة">شعبة عامة</option>
+              <option value="شعبة نظم">شعبة نظم</option>
+            </select>
+          </label>
+        </div>
 
+        <div class="grid">
           <div class="stat">
             <div class="stat-icon">♙</div>
             <div class="stat-label">إجمالي الطلاب</div>
             <div class="stat-value" id="totalStudents">—</div>
           </div>
-
           <div class="stat">
             <div class="stat-icon">✓</div>
             <div class="stat-label">الحضور اليوم</div>
             <div class="stat-value" id="todayPresent">—</div>
           </div>
-
           <div class="stat">
             <div class="stat-icon">×</div>
             <div class="stat-label">الغياب اليوم</div>
             <div class="stat-value" id="todayAbsent">—</div>
           </div>
-
           <div class="stat">
             <div class="stat-icon">▣</div>
             <div class="stat-label">عدد المحاضرات</div>
             <div class="stat-value" id="totalSessions">—</div>
           </div>
-
         </div>
 
         <div class="panel" style="margin-top:18px">
-          <h3>آخر سجلات الحضور</h3>
-
-          <div id="recentAttendance" class="empty">
-            جارٍ تحميل البيانات...
-          </div>
+          <h3>آخر سجلات الحضور والغياب</h3>
+          <div id="recentAttendance" class="empty">جارٍ تحميل البيانات...</div>
         </div>
-
       </section>
 
-      <!-- إدارة الطلاب -->
+      <!-- الطلاب -->
       <section id="tab-students" hidden>
-
         <div class="section-head">
           <div>
             <h2>إدارة الطلاب</h2>
-
-            <div class="muted">
-              متابعة حضور وغياب كل طالب ونسبة حضوره في كل مادة
-            </div>
+            <div class="muted">متابعة الطلاب والحضور حسب الفرقة والشعبة</div>
           </div>
-
-          <button id="addStudentBtn" class="btn">
-            ＋ إضافة طالب
-          </button>
+          <button id="addStudentBtn" class="btn">＋ إضافة طالب</button>
         </div>
 
         <div class="panel">
+          <div class="cohort-filters">
+            <label class="filter-label">
+              <span>الفرقة</span>
+              <select id="studentYearFilter" class="field">
+                <option value="">كل الفرق</option>
+                <option value="1">الفرقة الأولى</option>
+                <option value="2">الفرقة الثانية</option>
+                <option value="3">الفرقة الثالثة</option>
+                <option value="4">الفرقة الرابعة</option>
+              </select>
+            </label>
+            <label class="filter-label">
+              <span>الشعبة</span>
+              <select id="studentBranchFilter" class="field">
+                <option value="">كل الشعب</option>
+                <option value="شعبة عامة">شعبة عامة</option>
+                <option value="شعبة نظم">شعبة نظم</option>
+              </select>
+            </label>
+          </div>
 
           <div class="toolbar">
-            <input
-              id="studentSearch"
-              class="field"
-              placeholder="ابحث بالاسم أو كود الطالب..."
-              style="margin:0"
-            >
-
+            <input id="studentSearch" class="field"
+              placeholder="ابحث بالاسم أو كود الطالب..." style="margin:0">
             <span id="studentCount" class="muted"></span>
           </div>
 
           <div id="studentsTable" style="margin-top:16px"></div>
-
         </div>
       </section>
 
-      <!-- إدارة المحاضرات -->
+      <!-- المحاضرات -->
       <section id="tab-sessions" hidden>
-
         <div class="section-head">
           <div>
             <h2>إدارة المحاضرات</h2>
-
-            <div class="muted">
-              إنشاء جلسات QR مستقلة وتجميع المحاضرات حسب المادة
-            </div>
+            <div class="muted">كل محاضرة لها QR مستقل حسب الفرقة والشعبة</div>
           </div>
-
-          <button id="newSessionBtn" class="btn">
-            ＋ محاضرة جديدة
-          </button>
+          <button id="newSessionBtn" class="btn">＋ محاضرة جديدة</button>
         </div>
 
         <div class="panel">
-          <div id="activeQr" class="empty">
-            لا توجد جلسة منشأة حاليًا.
+          <div class="cohort-filters">
+            <label class="filter-label">
+              <span>الفرقة</span>
+              <select id="sessionYearFilter" class="field">
+                <option value="">كل الفرق</option>
+                <option value="1">الفرقة الأولى</option>
+                <option value="2">الفرقة الثانية</option>
+                <option value="3">الفرقة الثالثة</option>
+                <option value="4">الفرقة الرابعة</option>
+              </select>
+            </label>
+            <label class="filter-label">
+              <span>الشعبة</span>
+              <select id="sessionBranchFilter" class="field">
+                <option value="">كل الشعب</option>
+                <option value="شعبة عامة">شعبة عامة</option>
+                <option value="شعبة نظم">شعبة نظم</option>
+              </select>
+            </label>
           </div>
+
+          <h3>المحاضرات النشطة ورموز QR</h3>
+          <div id="activeQr" class="empty">جارٍ تحميل المحاضرات...</div>
         </div>
 
         <div class="panel" style="margin-top:16px">
           <h3>المواد والمحاضرات السابقة</h3>
           <div id="sessionsTable"></div>
         </div>
-
       </section>
 
-      <!-- سجلات الحضور -->
+      <!-- الحضور -->
       <section id="tab-attendance" hidden>
-
         <div class="section-head">
           <div>
-            <h2>سجلات الحضور</h2>
-
-            <div class="muted">
-              متابعة حضور الطلاب حسب المادة والمحاضرة وتاريخ التسجيل
-            </div>
+            <h2>سجلات الحضور والغياب</h2>
+            <div class="muted">عرض السجلات حسب الفرقة والشعبة والمادة والمحاضرة</div>
           </div>
-
-          <button
-            id="openManualAttendanceBtn"
-            class="btn manual-attendance-btn"
-            type="button"
-          >
+          <button id="openManualAttendanceBtn"
+            class="btn manual-attendance-btn" type="button">
             ＋ تسجيل حضور يدوي
           </button>
         </div>
 
         <div class="panel">
+          <div class="cohort-filters">
+            <label class="filter-label">
+              <span>الفرقة</span>
+              <select id="attendanceYearFilter" class="field">
+                <option value="">كل الفرق</option>
+                <option value="1">الفرقة الأولى</option>
+                <option value="2">الفرقة الثانية</option>
+                <option value="3">الفرقة الثالثة</option>
+                <option value="4">الفرقة الرابعة</option>
+              </select>
+            </label>
+            <label class="filter-label">
+              <span>الشعبة</span>
+              <select id="attendanceBranchFilter" class="field">
+                <option value="">كل الشعب</option>
+                <option value="شعبة عامة">شعبة عامة</option>
+                <option value="شعبة نظم">شعبة نظم</option>
+              </select>
+            </label>
+          </div>
 
           <div class="toolbar">
-
-            <select
-              id="attendanceSubject"
-              class="field"
-              style="margin:0;max-width:220px"
-            >
+            <select id="attendanceSubject" class="field" style="margin:0;max-width:220px">
               <option value="">كل المواد</option>
             </select>
-
-            <select
-              id="attendanceSession"
-              class="field"
-              style="margin:0;max-width:320px"
-            >
+            <select id="attendanceSession" class="field" style="margin:0;max-width:320px">
               <option value="">كل المحاضرات</option>
             </select>
-
-            <input
-              id="attendanceSearch"
-              class="field"
-              style="margin:0"
-              placeholder="ابحث باسم الطالب أو الكود"
-            >
-
+            <input id="attendanceSearch" class="field"
+              style="margin:0" placeholder="ابحث باسم الطالب أو الكود">
           </div>
 
           <div id="attendanceTable" style="margin-top:16px"></div>
-
         </div>
       </section>
 
       <!-- التقارير -->
       <section id="tab-reports" hidden>
-
         <div class="section-head">
           <div>
             <h2>التقارير</h2>
-
-            <div class="muted">
-              تقارير الحضور والغياب ونسب حضور الطلاب حسب المواد
-            </div>
+            <div class="muted">تقارير الحضور والغياب ونسب حضور الطلاب</div>
           </div>
-
-          <button id="exportExcel" class="btn success">
-            تصدير Excel
-          </button>
+          <button id="exportExcel" class="btn success">تصدير Excel</button>
         </div>
 
         <div class="panel">
+          <div class="cohort-filters">
+            <label class="filter-label">
+              <span>الفرقة</span>
+              <select id="reportYearFilter" class="field">
+                <option value="">كل الفرق</option>
+                <option value="1">الفرقة الأولى</option>
+                <option value="2">الفرقة الثانية</option>
+                <option value="3">الفرقة الثالثة</option>
+                <option value="4">الفرقة الرابعة</option>
+              </select>
+            </label>
+            <label class="filter-label">
+              <span>الشعبة</span>
+              <select id="reportBranchFilter" class="field">
+                <option value="">كل الشعب</option>
+                <option value="شعبة عامة">شعبة عامة</option>
+                <option value="شعبة نظم">شعبة نظم</option>
+              </select>
+            </label>
+          </div>
 
           <p class="muted">
-            سيتم تصدير سجلات الحضور المتاحة في قاعدة البيانات
-            مع اسم الطالب وكوده واسم المادة والمحاضرة والتوقيت.
+            يتم تصدير سجلات الحضور والغياب المطابقة للفلاتر المحددة.
           </p>
-
           <div id="reportSummary"></div>
-
         </div>
       </section>
 
       <!-- سجل العمليات -->
       <section id="tab-security" hidden>
-
         <div class="section-head">
           <div>
             <h2>سجل الحماية والعمليات</h2>
-
-            <div class="muted">
-              متابعة وتسجيل إجراءات الإدارة المهمة
-            </div>
+            <div class="muted">متابعة وتسجيل إجراءات الإدارة المهمة</div>
           </div>
         </div>
-
         <div class="panel">
-
-          <div id="auditTable" class="empty">
-            جارٍ تحميل السجل...
-          </div>
-
+          <div id="auditTable" class="empty">جارٍ تحميل السجل...</div>
         </div>
       </section>
 
@@ -411,45 +421,40 @@
   </div>
 </div>
 
-<!-- نافذة إضافة وتعديل الطلاب -->
+<!-- نافذة الطالب -->
 <div id="studentModal" class="modal">
-
   <div class="modal-card">
-
     <div class="modal-head">
       <h3 id="studentModalTitle">إضافة طالب</h3>
-
-      <button class="close" data-close="studentModal">
-        ✕
-      </button>
+      <button class="close" data-close="studentModal">✕</button>
     </div>
 
     <form id="studentForm">
-
       <input id="editUid" type="hidden">
 
       <div class="field">
         <label>اسم الطالب بالكامل</label>
-        <input
-          id="studentName"
-          required
-          minlength="3"
-          maxlength="100"
-        >
+        <input id="studentName" required minlength="3" maxlength="100">
       </div>
 
       <div class="field">
         <label>كود الطالب</label>
-        <input
-          id="studentCode"
-          required
-          pattern="[A-Za-z0-9_]{3,32}"
-        >
+        <input id="studentCode" required pattern="[A-Za-z0-9_-]{3,32}">
+      </div>
+
+      <div class="field">
+        <label>الفرقة الدراسية</label>
+        <select id="studentAcademicYear" required>
+          <option value="">اختر الفرقة</option>
+          <option value="1">الفرقة الأولى</option>
+          <option value="2">الفرقة الثانية</option>
+          <option value="3">الفرقة الثالثة</option>
+          <option value="4">الفرقة الرابعة</option>
+        </select>
       </div>
 
       <div class="field">
         <label>شعبة الطالب</label>
-
         <select id="studentBranch" required>
           <option value="">اختر الشعبة</option>
           <option value="شعبة عامة">شعبة عامة</option>
@@ -459,14 +464,8 @@
 
       <div class="field" id="nationalIdField">
         <label>الرقم القومي (14 رقمًا)</label>
-
-        <input
-          id="studentNationalId"
-          inputmode="numeric"
-          pattern="[0-9]{14}"
-          maxlength="14"
-          required
-        >
+        <input id="studentNationalId" inputmode="numeric"
+          pattern="[0-9]{14}" maxlength="14" required>
       </div>
 
       <div class="notice">
@@ -475,101 +474,79 @@
       </div>
 
       <div id="studentFormMsg"></div>
-
-      <button class="btn" type="submit">
-        حفظ الطالب
-      </button>
-
+      <button class="btn" type="submit">حفظ الطالب</button>
     </form>
   </div>
 </div>
 
-<!-- نافذة إنشاء محاضرة -->
+<!-- نافذة المحاضرة -->
 <div id="sessionModal" class="modal">
-
   <div class="modal-card">
-
     <div class="modal-head">
       <h3>إنشاء محاضرة</h3>
-
-      <button class="close" data-close="sessionModal">
-        ✕
-      </button>
+      <button class="close" data-close="sessionModal">✕</button>
     </div>
 
     <form id="sessionForm">
-
       <div class="field">
         <label>المادة</label>
-
-        <input
-          id="sessionSubject"
-          required
-          maxlength="100"
-          placeholder="مثال: المحاسبة المالية"
-        >
+        <input id="sessionSubject" required maxlength="100"
+          placeholder="مثال: المحاسبة المالية">
       </div>
 
       <div class="field">
         <label>اسم المحاضرة</label>
+        <input id="sessionTitle" required maxlength="100">
+      </div>
 
-        <input
-          id="sessionTitle"
-          required
-          maxlength="100"
-        >
+      <div class="field">
+        <label>الفرقة الدراسية</label>
+        <select id="sessionAcademicYear" required>
+          <option value="">اختر الفرقة</option>
+          <option value="1">الفرقة الأولى</option>
+          <option value="2">الفرقة الثانية</option>
+          <option value="3">الفرقة الثالثة</option>
+          <option value="4">الفرقة الرابعة</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>الشعبة</label>
+        <select id="sessionBranch" required>
+          <option value="">اختر الشعبة</option>
+          <option value="شعبة عامة">شعبة عامة</option>
+          <option value="شعبة نظم">شعبة نظم</option>
+        </select>
       </div>
 
       <div class="field">
         <label>مدة صلاحية QR بالدقائق</label>
-
-        <input
-          id="sessionDuration"
-          type="number"
-          min="1"
-          max="600"
-          value="30"
-          required
-        >
+        <input id="sessionDuration" type="number"
+          min="1" max="600" value="30" required>
       </div>
 
-      <button class="btn" type="submit">
-        إنشاء QR
-      </button>
-
+      <button class="btn" type="submit">إنشاء QR</button>
       <div id="sessionMsg"></div>
-
     </form>
   </div>
 </div>
 
-<!-- نافذة تسجيل الحضور اليدوي -->
+<!-- نافذة الحضور اليدوي -->
 <div id="manualAttendanceModal" class="modal">
-
   <div class="modal-card">
-
     <div class="modal-head">
       <h3>تسجيل حضور يدوي</h3>
-
-      <button
-        class="close"
-        type="button"
-        data-close="manualAttendanceModal"
-      >
-        ✕
-      </button>
+      <button class="close" type="button"
+        data-close="manualAttendanceModal">✕</button>
     </div>
 
     <form id="manualAttendanceForm">
-
       <div class="notice">
-        سيتم تسجيل حضور الطالب بواسطة الإدارة مباشرةً،
-        حتى لو انتهت صلاحية QR للمحاضرة.
+        اختر المحاضرة أولًا. ستظهر لك أسماء الطلاب المنتمين إلى فرقتها وشعبتها فقط.
       </div>
 
       <div class="field">
         <label>اختر المادة</label>
-
         <select id="manualAttendanceSubject" required>
           <option value="">اختر المادة</option>
         </select>
@@ -577,7 +554,6 @@
 
       <div class="field">
         <label>اختر المحاضرة</label>
-
         <select id="manualAttendanceSession" required disabled>
           <option value="">اختر المادة أولاً</option>
         </select>
@@ -585,55 +561,31 @@
 
       <div class="field">
         <label>ابحث عن الطالب</label>
-
-        <input
-          id="manualStudentSearch"
-          type="search"
-          autocomplete="off"
-          placeholder="اكتب اسم الطالب أو الكود..."
-          required
-        >
-
+        <input id="manualStudentSearch" type="search"
+          autocomplete="off" placeholder="اكتب اسم الطالب أو الكود..."
+          required>
         <div class="manual-help">
-          ابحث بالاسم أو الكود ثم اختر الطالب من النتائج.
+          البحث يعرض طلاب الفرقة والشعبة المختارتين فقط.
         </div>
-
-        <div
-          id="manualStudentResults"
-          class="manual-student-results"
-          hidden
-        ></div>
+        <div id="manualStudentResults"
+          class="manual-student-results" hidden></div>
       </div>
 
       <input id="manualStudentUid" type="hidden">
-
-      <div
-        id="manualSelectedStudent"
-        class="manual-selected"
-        hidden
-      ></div>
-
+      <div id="manualSelectedStudent" class="manual-selected" hidden></div>
       <div id="manualAttendanceMsg"></div>
 
-      <button
-        id="saveManualAttendanceBtn"
-        class="btn manual-attendance-btn"
-        type="submit"
-        disabled
-        style="width:100%;margin-top:14px"
-      >
+      <button id="saveManualAttendanceBtn"
+        class="btn manual-attendance-btn" type="submit"
+        disabled style="width:100%;margin-top:14px">
         تأكيد تسجيل الحضور
       </button>
-
     </form>
   </div>
 </div>
 
-<!-- المكتبات -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
 <script type="module" src="admin.js"></script>
 
 </body>
