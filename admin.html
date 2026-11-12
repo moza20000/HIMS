@@ -6,6 +6,64 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HIMS | الإدارة</title>
   <link rel="stylesheet" href="shared.css">
+
+  <style>
+    .manual-attendance-btn {
+      background: linear-gradient(135deg, #16a34a, #059669);
+      color: #fff;
+      border: none;
+    }
+
+    .manual-attendance-btn:hover {
+      filter: brightness(1.1);
+    }
+
+    .manual-student-results {
+      max-height: 260px;
+      overflow-y: auto;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      margin-top: 8px;
+    }
+
+    .manual-student-item {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border: 0;
+      border-bottom: 1px solid #334155;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      text-align: right;
+    }
+
+    .manual-student-item:hover {
+      background: rgba(99, 102, 241, .13);
+    }
+
+    .manual-student-item.selected {
+      background: rgba(22, 163, 74, .15);
+      border-right: 3px solid #16a34a;
+    }
+
+    .manual-selected {
+      padding: 12px;
+      border-radius: 10px;
+      background: rgba(22, 163, 74, .12);
+      border: 1px solid rgba(22, 163, 74, .4);
+      margin-top: 12px;
+    }
+
+    .manual-help {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 6px;
+    }
+  </style>
 </head>
 
 <body>
@@ -230,17 +288,14 @@
           </button>
         </div>
 
-        <!-- QR النشط -->
         <div class="panel">
           <div id="activeQr" class="empty">
             لا توجد جلسة منشأة حاليًا.
           </div>
         </div>
 
-        <!-- المحاضرات السابقة -->
         <div class="panel" style="margin-top:16px">
           <h3>المواد والمحاضرات السابقة</h3>
-
           <div id="sessionsTable"></div>
         </div>
 
@@ -257,6 +312,14 @@
               متابعة حضور الطلاب حسب المادة والمحاضرة وتاريخ التسجيل
             </div>
           </div>
+
+          <button
+            id="openManualAttendanceBtn"
+            class="btn manual-attendance-btn"
+            type="button"
+          >
+            ＋ تسجيل حضور يدوي
+          </button>
         </div>
 
         <div class="panel">
@@ -367,7 +430,6 @@
 
       <div class="field">
         <label>اسم الطالب بالكامل</label>
-
         <input
           id="studentName"
           required
@@ -378,7 +440,6 @@
 
       <div class="field">
         <label>كود الطالب</label>
-
         <input
           id="studentCode"
           required
@@ -482,12 +543,97 @@
   </div>
 </div>
 
+<!-- نافذة تسجيل الحضور اليدوي -->
+<div id="manualAttendanceModal" class="modal">
+
+  <div class="modal-card">
+
+    <div class="modal-head">
+      <h3>تسجيل حضور يدوي</h3>
+
+      <button
+        class="close"
+        type="button"
+        data-close="manualAttendanceModal"
+      >
+        ✕
+      </button>
+    </div>
+
+    <form id="manualAttendanceForm">
+
+      <div class="notice">
+        سيتم تسجيل حضور الطالب بواسطة الإدارة مباشرةً،
+        حتى لو انتهت صلاحية QR للمحاضرة.
+      </div>
+
+      <div class="field">
+        <label>اختر المادة</label>
+
+        <select id="manualAttendanceSubject" required>
+          <option value="">اختر المادة</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>اختر المحاضرة</label>
+
+        <select id="manualAttendanceSession" required disabled>
+          <option value="">اختر المادة أولاً</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>ابحث عن الطالب</label>
+
+        <input
+          id="manualStudentSearch"
+          type="search"
+          autocomplete="off"
+          placeholder="اكتب اسم الطالب أو الكود..."
+          required
+        >
+
+        <div class="manual-help">
+          ابحث بالاسم أو الكود ثم اختر الطالب من النتائج.
+        </div>
+
+        <div
+          id="manualStudentResults"
+          class="manual-student-results"
+          hidden
+        ></div>
+      </div>
+
+      <input id="manualStudentUid" type="hidden">
+
+      <div
+        id="manualSelectedStudent"
+        class="manual-selected"
+        hidden
+      ></div>
+
+      <div id="manualAttendanceMsg"></div>
+
+      <button
+        id="saveManualAttendanceBtn"
+        class="btn manual-attendance-btn"
+        type="submit"
+        disabled
+        style="width:100%;margin-top:14px"
+      >
+        تأكيد تسجيل الحضور
+      </button>
+
+    </form>
+  </div>
+</div>
+
 <!-- المكتبات -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-<!-- ملف الإدارة -->
 <script type="module" src="admin.js"></script>
 
 </body>
